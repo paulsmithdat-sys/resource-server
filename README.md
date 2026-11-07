@@ -922,19 +922,19 @@ src/
   db/
     load-schemas.ts
     build-schema.ts
-    table-builder.ts
     generate-exports.ts
     custom-ddl.ts
     postprocess-migration.ts
     generate-migration.ts
     reset.ts
+    *.test.ts
   server/
     app.ts
     resources/
     serializers/
   helper/
     loadDb.ts
-.drizzle/                 generated migrations
+.drizzle/                 generated migrations and custom-ddl-state.json
 .drizzleExports/          generated Drizzle schema
 ```
 
@@ -1014,9 +1014,17 @@ Idempotency tests are mandatory: generation and migration must be safe to re-run
 
 Serber is in early development.
 
-The repository currently contains a prototype generator and an initial migration. The next milestone is Phase 0–1: refactor the generator, add the system schemas, reset the development baseline, and prove idempotent table generation.
+Phase 0–1 is complete:
 
-Later milestones add relations, views, the JSON:API layer, authentication, authorization, and the AI schema workflow.
+- the generator is split into schema loading, deterministic building, export generation, migration post-processing, custom-DDL state, and reset modules;
+- system schemas for `user`, `group`, `key`, and `schema` are loaded alongside user schemas;
+- the development baseline was regenerated from scratch;
+- generation is idempotent: running it twice produces one migration;
+- migration application is idempotent: running it twice succeeds;
+- the baseline has exactly one `updated_at` trigger per table;
+- builder, post-processing, export, and idempotency tests pass.
+
+The next milestone is Phase 2: materialize `x-relations` into foreign keys, inverse one-to-many relations, and deduplicated many-to-many join tables.
 
 ---
 
