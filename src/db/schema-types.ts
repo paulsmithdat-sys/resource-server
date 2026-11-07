@@ -6,6 +6,7 @@ export type RelationConfig =
   , cardinality: Cardinality
   , foreignKey?: string
   , through?: string
+  , required?: boolean
   , onDelete?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   , onUpdate?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   }
@@ -37,6 +38,7 @@ export type JSONSchema =
   , default?: unknown
   , 'x-system'?: boolean
   , 'x-relations'?: Record<string, RelationConfig>
+  , 'x-unique-constraints'?: string[][]
   , [key: string]: unknown
   }
 
@@ -56,6 +58,14 @@ export type ColumnDef =
   , injected: boolean
   }
 
+export type ForeignKeyDef =
+  { columns: string[]
+  , foreignTable: string
+  , foreignColumns: string[]
+  , onDelete?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
+  , onUpdate?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
+  }
+
 export type TableDef =
   { key: string
   , tableName: string
@@ -63,15 +73,25 @@ export type TableDef =
   , schema: JSONSchema
   , columns: ColumnDef[]
   , isSystem: boolean
+  , derived: boolean
   , relations: Record<string, RelationConfig>
+  , foreignKeys: ForeignKeyDef[]
+  , uniqueConstraints: string[][]
+  , indexes: string[]
   , trigger: string
+  }
+
+export type ViewDef =
+  { name: string
+  , sql: string
+  , dropSql: string
   }
 
 export type BuiltSchema =
   { tables: Record<string, TableDef>
   , orderedTables: TableDef[]
   , triggers: Record<string, string>
-  , views: Record<string, never>
+  , views: Record<string, ViewDef>
   }
 
 const splitWords =

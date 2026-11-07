@@ -24,10 +24,14 @@ const built = buildSchema(
   ])
 
 describe('buildCustomDdl', () => {
-  test('creates one trigger entry per table in deterministic order', () => {
+  test('creates trigger and view entries in deterministic order', () => {
     const entries = buildCustomDdl(built)
     expect(entries.map(x => x.key)).toEqual(
-      ['trigger:gadget', 'trigger:widget'])
+      [ 'trigger:gadget'
+      , 'trigger:widget'
+      , 'view:gadget_view'
+      , 'view:widget_view'
+      ])
     expect(entries[0]!.name).toBe('gadget_updated')
     expect(entries[0]!.dropSql).toBe('DROP TRIGGER IF EXISTS `gadget_updated`;')
   })

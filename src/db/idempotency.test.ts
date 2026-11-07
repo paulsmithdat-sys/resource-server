@@ -30,7 +30,15 @@ describe('generation idempotency', () => {
       expect(diffCustomDdl(buildCustomDdl(secondBuilt), firstState)).toEqual([])
 
       expect(secondBuilt.orderedTables.map(x => x.tableName)).toEqual(
-        ['article', 'group', 'key', 'schema', 'tag', 'user'])
+        [ 'article'
+        , 'article_tag'
+        , 'key'
+        , 'schema'
+        , 'tag'
+        , 'user'
+        , 'user_group'
+        , 'user_group_membership'
+        ])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

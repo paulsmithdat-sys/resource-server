@@ -23,14 +23,22 @@ export const hashDdl =
   (sql: string) => createHash('sha256').update(sql).digest('hex')
 
 export const buildCustomDdl =
-  (built: BuiltSchema): CustomDdlEntry[] =>
-    built.orderedTables.map(table => (
+  (built: BuiltSchema): CustomDdlEntry[] => [
+    ...built.orderedTables.map(table => (
       { key: `trigger:${table.tableName}`
-      , kind: 'trigger'
+      , kind: 'trigger' as const
       , name: `${table.tableName}_updated`
       , sql: table.trigger
       , dropSql: `DROP TRIGGER IF EXISTS \`${table.tableName}_updated\`;`
-      }))
+      })),
+    ...Object.values(built.views).map(view => (
+      { key: `view:${view.name}`
+      , kind: 'view' as const
+      , name: view.name
+      , sql: view.sql
+      , dropSql: view.dropSql
+      })),
+  ]
 
 export const sortHashes =
   (hashes: Record<string, string>) =>

@@ -1,10 +1,25 @@
 import { sql } from 'drizzle-orm'
-import { blob, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import
+  { blob
+  , foreignKey
+  , index
+  , integer
+  , real
+  , sqliteTable
+  , text
+  , unique
+  } from 'drizzle-orm/sqlite-core'
+import { buildViews } from './views.ts'
+import
+  { DERIVED_SOURCE
+  , deriveSchemas
+  } from './derive-schemas.ts'
 import
   { pascalCase
   , snakeCase
   , type BuiltSchema
   , type ColumnDef
+  , type ForeignKeyDef
   , type JSONSchema
   , type JSONSchemaProperty
   , type LoadedSchema
@@ -57,8 +72,7 @@ const applyDefault =
 const buildColumn =
   ( key: string
   , property: JSONSchemaProperty
-  , required: boolean
-  , injected: boolean) => {
+  , required: boolean) => {
     const columnName = snakeCase(key)
     let builder: any
 
@@ -83,20 +97,20 @@ const buildColumn =
     else
       builder = text(columnName)
 
-    if (injected && key === 'id')
-      builder = builder.default(uuidDefault())
-    else if (property.default !== undefined)
+    if (property.default !== undefined)
       builder = applyDefault(builder, property.default, property)
+    else if (columnName === 'id')
+      builder = builder.default(uuidDefault())
     else if (columnName === 'updated_at')
-      builder = builder.default(sql`(cast((julianday('now') - 2440587.5)*86400000 as integer))`)
+      builder = builder.default(timestampDefault())
 
-    if (required || key === 'id' || columnName === 'updated_at')
+    if (required || columnName === 'id' || columnName === 'updated_at')
       builder = builder.notNull()
 
     if (property['x-unique'])
       builder = builder.unique()
 
-    if (property['x-primary'] || key === 'id')
+    if (property['x-primary'] || columnName === 'id')
       builder = builder.primaryKey()
 
     return builder
@@ -116,44 +130,96 @@ const validateRelation =
       throw new Error(`${sourceTitle}: relation "${label}" foreignKey must be a string`)
     if (relation.through !== undefined && typeof relation.through !== 'string')
       throw new Error(`${sourceTitle}: relation "${label}" through must be a string`)
+    if (relation.required !== undefined && typeof relation.required !== 'boolean')
+      throw new Error(`${sourceTitle}: relation "${label}" required must be a boolean`)
   }
 
-const buildTable =
-  (loaded: LoadedSchema): TableDef => {
+type TablePlan = Omit<TableDef, 'drizzleSchema'>
+
+const foreignKeyColumnOf =
+  (relation: RelationConfig) =>
+    snakeCase(relation.foreignKey ?? `${relation.table}_${relation.column ?? 'id'}`)
+
+const buildUniqueConstraints =
+  (schema: JSONSchema, columnNames: Set<string>) => {
+    const raw = schema['x-unique-constraints']
+    if (raw === undefined) return []
+
+    if (!Array.isArray(raw))
+      throw new Error(`${schema.title}: x-unique-constraints must be an array`)
+
+    const result: string[][] = []
+    const seen = new Set<string>()
+
+    raw.forEach((entry, index) => {
+      if (!Array.isArray(entry) || entry.length === 0
+          || !entry.every(x => typeof x === 'string'))
+        throw new Error(
+          `${schema.title}: x-unique-constraints[${index}] must be a non-empty array of column names`)
+
+      const columns = entry.map(snakeCase)
+      for (const column of columns)
+        if (!columnNames.has(column))
+          throw new Error(
+            `${schema.title}: unique constraint references unknown column "${column}"`)
+
+      const signature = columns.join('::')
+      if (seen.has(signature)) return
+      seen.add(signature)
+      result.push(columns)
+    })
+
+    return result
+  }
+
+const buildTablePlan =
+  (loaded: LoadedSchema): TablePlan => {
     const schema = loaded.schema
-    const properties = { ...(schema.properties ?? {}) }
+    const declared = Object.entries(schema.properties ?? {})
     const injected = new Set<string>()
 
-    if (!properties.id) {
-      properties.id = { type: 'string', format: 'uuid', 'x-primary': true }
-      injected.add('id')
-    }
-    if (!properties.updated_at) {
-      properties.updated_at = { type: 'string', format: 'date-time' }
-      injected.add('updated_at')
-    }
+    const findEntry =
+      (columnName: string) =>
+        declared.find(([key]) => snakeCase(key) === columnName)
 
-    const required = new Set(schema.required ?? [])
-    if (properties.id) required.add('id')
-    if (properties.updated_at) required.add('updated_at')
+    const idEntry = findEntry('id')
+    const updatedAtEntry = findEntry('updated_at')
 
-    const orderedProperties: [string, JSONSchemaProperty][] = []
-    if (properties.id) orderedProperties.push(['id', properties.id])
-    if (properties.updated_at) orderedProperties.push(['updated_at', properties.updated_at])
-    for (const [key, value] of Object.entries(schema.properties ?? {}))
-      if (key !== 'id' && key !== 'updated_at')
-        orderedProperties.push([key, value])
+    if (!idEntry) injected.add('id')
+    if (!updatedAtEntry) injected.add('updated_at')
 
+    const orderedEntries: [string, JSONSchemaProperty][] = []
+    if (idEntry)
+      orderedEntries.push(idEntry)
+    else
+      orderedEntries.push(
+        ['id', { type: 'string', format: 'uuid', 'x-primary': true }])
+    if (updatedAtEntry)
+      orderedEntries.push(updatedAtEntry)
+    else
+      orderedEntries.push(['updated_at', { type: 'string', format: 'date-time' }])
+
+    for (const entry of declared)
+      if (entry[0] !== idEntry?.[0] && entry[0] !== updatedAtEntry?.[0])
+        orderedEntries.push(entry)
+
+    const requiredNames = new Set((schema.required ?? []).map(snakeCase))
     const columns: ColumnDef[] =
-      orderedProperties.map(([key, property]) => (
-        { key
-        , columnName: snakeCase(key)
-        , schema: property
-        , drizzle:
-            buildColumn(key, property, required.has(key), injected.has(key))
-        , required: required.has(key)
-        , injected: injected.has(key)
-        }))
+      orderedEntries.map(([key, property]) => {
+        const columnName = snakeCase(key)
+        const isRequired =
+          requiredNames.has(columnName)
+          || columnName === 'id'
+          || columnName === 'updated_at'
+        return (
+          { key
+          , columnName
+          , schema: property
+          , drizzle: buildColumn(key, property, isRequired)
+          , required: isRequired
+          , injected: injected.has(columnName)
+          })
+      })
 
     const columnNames = new Set<string>()
     for (const column of columns) {
@@ -162,7 +228,7 @@ const buildTable =
       columnNames.add(column.columnName)
     }
 
-    const primaryKeys = columns.filter(x => x.schema['x-primary'] || x.key === 'id')
+    const primaryKeys = columns.filter(x => x.schema['x-primary'] || x.columnName === 'id')
     if (primaryKeys.length > 1)
       throw new Error(
         `${schema.title}: multiple primary keys: ${primaryKeys.map(x => x.columnName).join(', ')}`)
@@ -171,50 +237,195 @@ const buildTable =
     for (const [label, relation] of Object.entries(relations))
       validateRelation(schema.title, label, relation)
 
+    const foreignKeys: ForeignKeyDef[] = []
+    for (const [label, relation] of Object.entries(relations)) {
+      if (relation.cardinality !== 'one') continue
+
+      const foreignKeyColumn = foreignKeyColumnOf(relation)
+      if (!columnNames.has(foreignKeyColumn))
+        throw new Error(
+          `${schema.title}: relation "${label}" foreign key column "${foreignKeyColumn}" does not exist`)
+
+      foreignKeys.push(
+        { columns: [foreignKeyColumn]
+        , foreignTable: relation.table
+        , foreignColumns: [relation.column ?? 'id']
+        , ...(relation.onDelete ? { onDelete: relation.onDelete } : {})
+        , ...(relation.onUpdate ? { onUpdate: relation.onUpdate } : {})
+        })
+    }
+
+    const uniqueConstraints =
+      buildUniqueConstraints(schema, columnNames)
+
+    const indexes =
+      [...new Set(foreignKeys.flatMap(x => x.columns))]
+
     const tableName = snakeCase(schema.title)
-    const drizzleSchema = sqliteTable(
-      tableName
-      , Object.fromEntries(columns.map(x => [x.key, x.drizzle])))
 
     return (
       { key: pascalCase(schema.title)
       , tableName
-      , drizzleSchema
       , schema
       , columns
-      , isSystem: schema['x-system'] === true || loaded.importPath.startsWith(SYSTEM_SCHEMA_DIR)
+      , isSystem:
+          schema['x-system'] === true
+          || (loaded.source !== DERIVED_SOURCE
+              && loaded.importPath.startsWith(SYSTEM_SCHEMA_DIR))
+      , derived: loaded.source === DERIVED_SOURCE
       , relations
+      , foreignKeys
+      , uniqueConstraints
+      , indexes
       , trigger: createUpdatedTrigger(tableName)
       })
   }
 
+const sortPlansByDependencies =
+  (plans: TablePlan[]) => {
+    const byName = new Map(plans.map(x => [x.tableName, x]))
+    const state = new Map<string, 'visiting' | 'done'>()
+    const sorted: TablePlan[] = []
+
+    const visit =
+      (plan: TablePlan) => {
+        const current = state.get(plan.tableName)
+        if (current === 'done') return
+        if (current === 'visiting')
+          throw new Error(
+            `Cyclic foreign key dependency involving "${plan.tableName}" is not supported yet`)
+
+        state.set(plan.tableName, 'visiting')
+
+        for (const foreignKeyDef of plan.foreignKeys) {
+          if (foreignKeyDef.foreignTable === plan.tableName)
+            throw new Error(
+              `${plan.tableName}: self-referential foreign keys are not supported yet`)
+
+          const target = byName.get(foreignKeyDef.foreignTable)
+          if (!target)
+            throw new Error(
+              `${plan.tableName}: foreign key references unknown table "${foreignKeyDef.foreignTable}"`)
+
+          visit(target)
+        }
+
+        state.set(plan.tableName, 'done')
+        sorted.push(plan)
+      }
+
+    for (const plan of [...plans].sort(
+      (a, b) => a.tableName.localeCompare(b.tableName)))
+      visit(plan)
+
+    return sorted
+  }
+
+const columnKeyFor =
+  (plan: TablePlan, columnName: string) => {
+    const column = plan.columns.find(x => x.columnName === columnName)
+    if (!column)
+      throw new Error(
+        `${plan.tableName}: column "${columnName}" does not exist`)
+    return column.key
+  }
+
+const createDrizzleTable =
+  ( plan: TablePlan
+  , plansByName: Map<string, TablePlan>
+  , tablesByName: Map<string, any>) => {
+    const columns =
+      Object.fromEntries(plan.columns.map(x => [x.key, x.drizzle]))
+
+    return sqliteTable(plan.tableName, columns, self => {
+      const extras: any[] = []
+
+      for (const foreignKeyDef of plan.foreignKeys) {
+        const targetPlan = plansByName.get(foreignKeyDef.foreignTable)
+        const targetTable = tablesByName.get(foreignKeyDef.foreignTable)
+        if (!targetPlan || !targetTable)
+          throw new Error(
+            `${plan.tableName}: foreign key target "${foreignKeyDef.foreignTable}" has not been built`)
+
+        const localColumns =
+          foreignKeyDef.columns.map(
+            x => (self as any)[columnKeyFor(plan, x)]) as [any, ...any[]]
+        const targetColumns =
+          foreignKeyDef.foreignColumns.map(
+            x => targetTable[columnKeyFor(targetPlan, x)]) as [any, ...any[]]
+
+        const builder =
+          foreignKey(
+            { name: `${plan.tableName}_${foreignKeyDef.columns.join('_')}_fk`
+            , columns: localColumns
+            , foreignColumns: targetColumns
+            })
+        if (foreignKeyDef.onDelete) builder.onDelete(foreignKeyDef.onDelete)
+        if (foreignKeyDef.onUpdate) builder.onUpdate(foreignKeyDef.onUpdate)
+        extras.push(builder)
+      }
+
+      for (const constraint of plan.uniqueConstraints) {
+        const args =
+          constraint.map(
+            x => (self as any)[columnKeyFor(plan, x)]) as [any, ...any[]]
+        extras.push(
+          unique(`${plan.tableName}_${constraint.join('_')}_unique`).on(...args))
+      }
+
+      for (const columnName of plan.indexes) {
+        extras.push(
+          index(`${plan.tableName}_${columnName}_index`)
+            .on((self as any)[columnKeyFor(plan, columnName)]))
+      }
+
+      return extras
+    })
+  }
+
 export const buildSchema =
-  (schemas: LoadedSchema[]): BuiltSchema => {
-    const orderedTables = schemas.map(buildTable)
+  (base: LoadedSchema[]): BuiltSchema => {
+    const schemas = deriveSchemas(base)
+    const plans = schemas.map(buildTablePlan)
+
     const tables: Record<string, TableDef> = {}
-
-    for (const table of orderedTables) {
-      if (tables[table.key])
-        throw new Error(`Duplicate table export "${table.key}"`)
-      tables[table.key] = table
-    }
-
     const tableNames = new Set<string>()
-    for (const table of orderedTables) {
-      if (tableNames.has(table.tableName))
-        throw new Error(`Duplicate table name "${table.tableName}"`)
-      tableNames.add(table.tableName)
+    for (const plan of plans) {
+      if (tables[plan.key])
+        throw new Error(`Duplicate table export "${plan.key}"`)
+      if (tableNames.has(plan.tableName))
+        throw new Error(`Duplicate table name "${plan.tableName}"`)
+      tables[plan.key] = plan as TableDef
+      tableNames.add(plan.tableName)
     }
 
-    orderedTables.sort((a, b) => a.tableName.localeCompare(b.tableName))
+    const plansByName = new Map(plans.map(x => [x.tableName, x]))
+    const tablesByName = new Map<string, any>()
+    const builtByName = new Map<string, TableDef>()
 
-    return (
+    for (const plan of sortPlansByDependencies(plans)) {
+      const drizzleSchema =
+        createDrizzleTable(plan, plansByName, tablesByName)
+      const table: TableDef = { ...plan, drizzleSchema }
+      tablesByName.set(plan.tableName, drizzleSchema)
+      builtByName.set(plan.tableName, table)
+      tables[plan.key] = table
+    }
+
+    const orderedTables =
+      [...builtByName.values()].sort(
+        (a, b) => a.tableName.localeCompare(b.tableName))
+
+    const built: BuiltSchema =
       { tables
       , orderedTables
-      , triggers: Object.fromEntries(
-          orderedTables.map(x => [x.tableName, x.trigger]))
+      , triggers:
+          Object.fromEntries(
+            orderedTables.map(x => [x.tableName, x.trigger]))
       , views: {}
-      })
+      }
+
+    return { ...built, views: buildViews(built) }
   }
 
 export type { JSONSchema }
