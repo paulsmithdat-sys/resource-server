@@ -1,0 +1,242 @@
+import { describe, expect, test } from 'bun:test'
+import { getTableConfig } from 'drizzle-orm/sqlite-core'
+import { buildSchema, createUpdatedTrigger } from './build-schema.ts'
+import
+  { pascalCase
+  , snakeCase
+  , type JSONSchema
+  , type LoadedSchema
+  } from './schema-types.ts'
+
+const loadedSchema =
+  (schema: JSONSchema): LoadedSchema => (
+    { schema
+    , source: `/test/${schema.title}.ts`
+    , importPath: `src/schema/${snakeCase(schema.title)}.ts`
+    , exportName: `${pascalCase(schema.title)}Schema`
+    })
+
+const buildOne =
+  (schema: JSONSchema) => buildSchema([loadedSchema(schema)])
+
+const columnConfig =
+  (schema: JSONSchema, tableName?: string) => {
+    const built = buildOne(schema)
+    const table = tableName
+      ? built.tables[tableName]!
+      : built.orderedTables[0]!
+    return getTableConfig(table.drizzleSchema)
+  }
+
+describe('snakeCase and pascalCase', () => {
+  test('convert titles to table and export names', () => {
+    expect(snakeCase('Blog Post')).toBe('blog_post')
+    expect(snakeCase('UserGroup')).toBe('user_group')
+    expect(snakeCase('HTTPServer')).toBe('http_server')
+    expect(pascalCase('blog post')).toBe('BlogPost')
+    expect(pascalCase('user_group')).toBe('UserGroup')
+  })
+})
+
+describe('buildSchema default columns', () => {
+  test('injects id and updated_at for every table', () => {
+    const config = columnConfig(
+      { title: 'Widget', type: 'object', properties: {} })
+
+    expect(config.name).toBe('widget')
+    expect(config.columns.map(x => x.name)).toEqual(['id', 'updated_at'])
+
+    const [id, updatedAt] = config.columns
+    expect(id!.getSQLType()).toBe('blob')
+    expect(id!.primary).toBe(true)
+    expect(id!.notNull).toBe(true)
+    expect(id!.hasDefault).toBe(true)
+
+    expect(updatedAt!.getSQLType()).toBe('integer')
+    expect(updatedAt!.notNull).toBe(true)
+    expect(updatedAt!.hasDefault).toBe(true)
+  })
+
+  test('keeps declared id and updated_at columns instead of injecting duplicates', () => {
+    const config = columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { id: { type: 'string', format: 'uuid', 'x-primary': true }
+        , updated_at: { type: 'string', format: 'date-time' }
+        }
+      })
+
+    expect(config.columns.map(x => x.name)).toEqual(['id', 'updated_at'])
+  })
+
+  test('places id and updated_at first and snake_cases every column', () => {
+    const config = columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { displayName: { type: 'string' }
+        , createdAt: { type: 'string', format: 'date-time' }
+        }
+      })
+
+    expect(config.columns.map(x => x.name))
+      .toEqual(['id', 'updated_at', 'display_name', 'created_at'])
+  })
+})
+
+describe('buildSchema column types', () => {
+  test('maps supported JSON Schema types', () => {
+    const config = columnConfig(
+      { title: 'Types'
+      , type: 'object'
+      , properties:
+        { name: { type: 'string' }
+        , uuid: { type: 'string', format: 'uuid' }
+        , when: { type: 'string', format: 'date-time' }
+        , bytes: { type: 'string', format: 'byte' }
+        , count: { type: 'integer' }
+        , ratio: { type: 'number' }
+        , active: { type: 'boolean' }
+        , meta: { type: 'object' }
+        , tags: { type: 'array', items: { type: 'string' } }
+        , kind: { type: 'string', enum: ['one', 'two'] }
+        }
+      })
+
+    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
+    expect(byName.name!.getSQLType()).toBe('text')
+    expect(byName.uuid!.getSQLType()).toBe('blob')
+    expect(byName.when!.getSQLType()).toBe('integer')
+    expect(byName.bytes!.getSQLType()).toBe('blob')
+    expect(byName.count!.getSQLType()).toBe('integer')
+    expect(byName.ratio!.getSQLType()).toBe('real')
+    expect(byName.active!.getSQLType()).toBe('integer')
+    expect(byName.active!.dataType).toBe('boolean')
+    expect(byName.meta!.dataType).toContain('json')
+    expect(byName.tags!.dataType).toContain('json')
+    expect(byName.kind!.enumValues).toEqual(['one', 'two'])
+  })
+
+  test('honours required, x-unique, x-primary, and defaults', () => {
+    const config = columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , required: ['name']
+      , properties:
+        { name: { type: 'string', 'x-unique': true }
+        , slug: { type: 'string', 'x-unique': true, default: 'untitled' }
+        , count: { type: 'integer', default: 3 }
+        , payload: { type: 'object', default: { a: 1 } }
+        , flags: { type: 'array', default: ['a'] }
+        }
+      })
+
+    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
+    expect(byName.name!.notNull).toBe(true)
+    expect(byName.name!.isUnique).toBe(true)
+    expect(byName.slug!.isUnique).toBe(true)
+    expect(byName.slug!.hasDefault).toBe(true)
+    expect(byName.count!.hasDefault).toBe(true)
+    expect(byName.payload!.hasDefault).toBe(true)
+    expect(byName.flags!.hasDefault).toBe(true)
+  })
+
+  test('rejects duplicate columns, primary keys, and table names', () => {
+    expect(() => columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { displayName: { type: 'string' }
+        , display_name: { type: 'string' }
+        }
+      })).toThrow('duplicate column')
+
+    expect(() => columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { a: { type: 'string', 'x-primary': true }
+        , b: { type: 'string', 'x-primary': true }
+        }
+      })).toThrow('multiple primary keys')
+
+    expect(() => buildSchema(
+      [ loadedSchema({ title: 'Widget', type: 'object', properties: {} })
+      , loadedSchema({ title: 'Widget', type: 'object', properties: {} })
+      ])).toThrow('Duplicate table export')
+  })
+})
+
+describe('buildSchema relations', () => {
+  test('keeps relation metadata and validates its shape', () => {
+    const built = buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: {}
+      , 'x-relations':
+        { owner:
+          { table: 'user'
+          , column: 'id'
+          , cardinality: 'one'
+          , foreignKey: 'owner_id'
+          , onDelete: 'restrict'
+          }
+        }
+      })
+
+    expect(built.tables.Widget!.relations.owner).toEqual(
+      { table: 'user'
+      , column: 'id'
+      , cardinality: 'one'
+      , foreignKey: 'owner_id'
+      , onDelete: 'restrict'
+      })
+  })
+
+  test('rejects invalid relations', () => {
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: {}
+      , 'x-relations':
+        { owner: { table: 'user', cardinality: 'invalid' as 'one' } }
+      })).toThrow('cardinality must be')
+
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: {}
+      , 'x-relations':
+        { owner: { table: '', cardinality: 'one' } }
+      })).toThrow('needs a table')
+
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: {}
+      , 'x-relations':
+        { owner: { table: 'user', cardinality: 'one', foreignKey: 1 as unknown as string } }
+      })).toThrow('foreignKey must be a string')
+  })
+})
+
+describe('buildSchema output', () => {
+  test('sorts tables deterministically and tracks triggers', () => {
+    const built = buildSchema(
+      [ loadedSchema({ title: 'Zebra', type: 'object', properties: {} })
+      , loadedSchema({ title: 'Apple', type: 'object', properties: {} })
+      ])
+
+    expect(built.orderedTables.map(x => x.tableName)).toEqual(['apple', 'zebra'])
+    expect(Object.keys(built.triggers)).toEqual(['apple', 'zebra'])
+    expect(built.triggers.apple).toContain('CREATE TRIGGER IF NOT EXISTS `apple_updated`')
+  })
+
+  test('creates a quoted trigger per table', () => {
+    const trigger = createUpdatedTrigger('blog_post')
+    expect(trigger).toContain('AFTER UPDATE ON `blog_post`')
+    expect(trigger).toContain('WHERE id = OLD.id')
+    expect(trigger.endsWith(';')).toBe(true)
+  })
+})
