@@ -33,6 +33,14 @@ export const buildExportsSource =
         (schema, index) =>
           `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`)
 
+    const inputEntries =
+      sortedLoaded.map(
+        (schema, index) =>
+          `  { schema: input${index}`
+          + `, source: ${JSON.stringify(schema.importPath)}`
+          + `, importPath: ${JSON.stringify(schema.importPath)}`
+          + `, exportName: ${JSON.stringify(schema.exportName)} }`)
+
     const exportLines =
       built.orderedTables.map(table => {
         const name = assertIdentifier(table.key)
@@ -44,7 +52,9 @@ export const buildExportsSource =
       `import { buildSchema } from '${toImportPath(exportDir, builderPath)}'`,
       ...inputLines,
       '',
-      `const builtSchema = buildSchema([${sortedLoaded.map((_, index) => `input${index}`).join(', ')}])`,
+      'const builtSchema = buildSchema([',
+      ...inputEntries.map(line => `${line},`),
+      '])',
       '',
       ...exportLines,
       '',

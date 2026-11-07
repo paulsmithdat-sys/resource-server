@@ -33,6 +33,8 @@ describe('buildExportsSource', () => {
     const source = buildExportsSource(built, schemas, projectExportPath)
     expect(source).toContain('import { AppleSchema as input0 }')
     expect(source).toContain('import { ZebraSchema as input1 }')
+    expect(source).toContain('{ schema: input0, source: "src/schema/Apple.ts"')
+    expect(source).toContain('{ schema: input1, source: "src/schema/Zebra.ts"')
     expect(source).toContain('export const Apple = builtSchema.tables[\'Apple\'].drizzleSchema')
     expect(source).toContain('export const Zebra = builtSchema.tables[\'Zebra\'].drizzleSchema')
     expect(source).not.toContain("import { tables }")
