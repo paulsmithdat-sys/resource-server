@@ -1,6 +1,6 @@
-export const groupSchema =
+export const userGroupSchema =
   { $schema: "https://json-schema.org/draft/2020-12/schema"
-  , title: "Group"
+  , title: "User Group"
   , type: "object"
   , additionalProperties: false
   , description: "A group of users used for roles and sharing"
@@ -24,7 +24,7 @@ export const groupSchema =
       { table: "user"
       , column: "id"
       , cardinality: "many"
-      , through: "user_group"
+      , through: "user_group_membership"
       }
     }
   }

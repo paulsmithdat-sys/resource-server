@@ -33,10 +33,10 @@ export const userSchema =
       , cardinality: "many"
       }
     , groups:
-      { table: "group"
+      { table: "user_group"
       , column: "id"
       , cardinality: "many"
-      , through: "user_group"
+      , through: "user_group_membership"
       }
     }
   }
