@@ -274,12 +274,12 @@ Relations:
 - `keys` — one user has many keys
 - `groups` — many-to-many membership
 
-#### `group`
+#### `user_group`
 
 - `name` — unique text
 - `description` — optional text
 
-Groups are the future container for roles and shares. Membership metadata, roles, and share grants are deferred.
+A group has many users through the derived `user_group_membership` join table. Groups are the future container for roles and shares. Membership metadata, roles, and share grants are deferred.
 
 #### `key`
 
@@ -329,6 +329,7 @@ A schema title becomes the snake_case table name:
 | `x-primary` | Custom primary key |
 | `x-system` | Always-loaded system schema |
 | `x-relations` | Relation metadata |
+| `x-unique-constraints` | Table-level unique constraints over column groups |
 
 ### Type mapping
 
@@ -375,7 +376,7 @@ This produces:
 
 - the `article` table;
 - the `article_tag` join table;
-- the `article_tag_view` relation view;
+- `article_view` with a `tag` JSON array, plus `article_tag_view`;
 - the `/article` JSON:API resource.
 
 ---
@@ -395,10 +396,10 @@ Relations are declared under `x-relations`.
       "onDelete": "restrict"
     },
     "groups": {
-      "table": "group",
+      "table": "user_group",
       "column": "id",
       "cardinality": "many",
-      "through": "user_group",
+      "through": "user_group_membership",
       "onDelete": "cascade"
     }
   }
@@ -414,6 +415,7 @@ Relations are declared under `x-relations`.
 | `cardinality` | `one` or `many` |
 | `foreignKey` | Optional FK column name override |
 | `through` | Optional join table name override |
+| `required` | Whether a derived `one` FK column is `NOT NULL` |
 | `onDelete` | FK delete behavior |
 | `onUpdate` | FK update behavior |
 
@@ -455,8 +457,9 @@ A join table is created with:
 - default columns `id` and `updated_at`;
 - `<source>_id`;
 - `<target>_id`;
-- foreign keys;
+- `NOT NULL` foreign keys;
 - a unique constraint on the pair;
+- indexes on both FK columns;
 - the `updated_at` trigger.
 
 Default join table name:
@@ -465,16 +468,16 @@ Default join table name:
 <source_table>_<target_table>
 ```
 
-Explicit `through` names are supported.
+The pair is sorted before naming, so declaring the relation from either side produces the same join table. Explicit `through` names are supported.
 
 Examples:
 
 - `Article` ↔ `Tag` → `article_tag`
-- `User` ↔ `Group` → `user_group`
+- `User` ↔ `User Group` → `user_group_membership` (explicit `through`)
 
 ### Deduplication
 
-If both sides declare the same many-to-many relation, only one join table is generated. Explicit `through` names win. Conflicting explicit names are an error.
+If both sides declare the same many-to-many relation, only one join table is generated. Explicit `through` names win. Conflicting explicit names are an error. Self-referential many-to-many relations and cyclic foreign keys are rejected with a clear error until they are implemented.
 
 ---
 
@@ -482,50 +485,52 @@ If both sides declare the same many-to-many relation, only one join table is gen
 
 Views resolve foreign keys into the actual referenced data.
 
-### One-to-one / many-to-one
+There is exactly one view per table, named `<table>_view`. A view returns one row per table row, so the table's own columns stay columns and relations become JSON values in the same row.
 
-For each table with `one` relations, generate:
+### Base columns
 
-```text
-<table>_view
-```
+Every view exposes the table's columns. UUID columns are formatted as canonical lowercase UUID strings, so they can be used directly in later queries or JSON:API documents. Integer timestamps stay integers and JSON columns stay JSON.
 
-It contains the base columns and one JSON object column per `one` relation.
+### `one` relations
 
-Example `key_view`:
+Each `one` relation becomes a JSON object column named after the relation label:
 
 ```json
 {
-  "id": "...",
+  "id": "019...",
   "updated_at": 1760000000000,
   "jwk": { "kty": "OKP", "crv": "Ed25519", "x": "..." },
   "user": {
-    "id": "...",
+    "id": "019...",
     "username": "alice",
     "email": "alice@example.com"
   }
 }
 ```
 
-If the FK is null, the JSON column is `null`, not an object full of nulls.
+If the FK is null, the relation column is `null`, not an object full of nulls.
 
-### One-to-many and many-to-many
+### `many` relations
 
-For each `many` relation, generate:
+Each `many` relation becomes a JSON array column named after the relation label.
 
-```text
-<source>_<label>_view
+- One-to-many relations aggregate the targets whose FK points back to the source row.
+- Many-to-many relations join through the derived join table.
+- An empty relation is `[]`, never `null`.
+
+Example `article_view`:
+
+```json
+{
+  "id": "019...",
+  "heading": "Hello",
+  "tag": [
+    { "id": "019...", "name": "sql", "kind": "topic" }
+  ]
+}
 ```
 
-Examples:
-
-- `user_key_view`
-- `user_group_view`
-- `article_tag_view`
-
-Each row joins the source, the join table, and the target, and exposes the resolved target as a JSON object.
-
-Views are exported to Drizzle using `sqliteView(name, columns).existing()`, so the ORM can query them with typed columns. The migration post-processor owns the `DROP VIEW IF EXISTS` and `CREATE VIEW` statements.
+Views are generated as custom DDL and tracked by hash in `.drizzle/custom-ddl-state.json`. Drizzle Kit does not create or track them. Typed `.existing()` Drizzle view mappings are a later convenience; the database view is the source of truth today.
 
 ---
 
@@ -539,7 +544,7 @@ Resource types are the snake_case table names:
 
 ```text
 /user
-/group
+/user_group
 /key
 /article
 /tag
@@ -754,7 +759,7 @@ Exit criteria:
 Deliverables:
 
 - reset the development `.drizzle` and `.db` baseline;
-- generate `user`, `group`, `key`, `schema`, `article`, and `tag`;
+- generate `user`, `user_group`, `key`, `schema`, `article`, and `tag`;
 - post-process new migrations with `IF NOT EXISTS` guards and triggers;
 - custom-DDL state file;
 - integration tests against a temporary database.
@@ -771,13 +776,18 @@ Exit criteria:
 
 **Goal:** generate foreign keys and join tables from `x-relations`.
 
+Status: complete.
+
 Deliverables:
 
-- `one` relations with FK columns and `onDelete`/`onUpdate`;
-- inverse-aware one-to-many;
-- many-to-many join tables with default columns, FKs, unique pair, and trigger;
-- deduplication and validation;
-- system relations: `key.user`, `user.keys`, `user.groups`, `group.users`.
+- derived relation schemas for `one` FK columns and many-to-many join tables;
+- `one` relations with nullable FK columns by default, `required` support, and `onDelete`/`onUpdate`;
+- inverse-aware one-to-many detection;
+- many-to-many join tables with default columns, `NOT NULL` FKs, unique pair, indexes, and trigger;
+- unordered pair deduplication, explicit `through`, and conflict detection;
+- table-level `x-unique-constraints`;
+- topological table creation order with clear errors for cycles and self-references;
+- system relations: `key.user`, `user.keys`, `user.groups`, `user_group.users`.
 
 Exit criteria:
 
@@ -790,20 +800,26 @@ Exit criteria:
 
 **Goal:** resolve foreign keys into actual data.
 
+Status: complete.
+
 Deliverables:
 
-- `<table>_view` with JSON objects for `one` relations;
-- `<source>_<label>_view` for `many` relations;
-- null-safe JSON construction;
-- typed Drizzle view exports;
-- custom-DDL integration for view creation and replacement.
+- one `<table>_view` per table with one row per table row;
+- `one` relations as nested JSON objects or `null`;
+- `many` relations as JSON arrays, including empty arrays;
+- canonical lowercase UUID strings in views;
+- custom-DDL integration for view creation and replacement;
+- view hashes in `.drizzle/custom-ddl-state.json`.
 
 Exit criteria:
 
 - views are created in migrations;
 - null FKs produce `null`, not partial objects;
-- many-relation views return one row per link;
-- typed Drizzle queries work against views.
+- many relations return JSON arrays;
+- re-running generation does not duplicate views;
+- queries against views return canonical UUID strings.
+
+Typed Drizzle view mappings and JSON:API `include` are deferred to the API phase.
 
 ### Phase 4 — JSON:API
 
@@ -914,14 +930,16 @@ src/
   schema/
     system/
       user.ts
-      group.ts
+      user_group.ts
       key.ts
       schema.ts
     article.ts
     tag.ts
   db/
     load-schemas.ts
+    derive-schemas.ts
     build-schema.ts
+    views.ts
     generate-exports.ts
     custom-ddl.ts
     postprocess-migration.ts
@@ -1014,17 +1032,22 @@ Idempotency tests are mandatory: generation and migration must be safe to re-run
 
 Serber is in early development.
 
-Phase 0–1 is complete:
+Phase 0–3 is complete:
 
-- the generator is split into schema loading, deterministic building, export generation, migration post-processing, custom-DDL state, and reset modules;
-- system schemas for `user`, `group`, `key`, and `schema` are loaded alongside user schemas;
+- the generator is split into schema loading, relation derivation, deterministic building, view generation, export generation, migration post-processing, custom-DDL state, and reset modules;
+- system schemas for `user`, `user_group`, `key`, and `schema` are loaded alongside user schemas;
+- `one` relations become foreign keys with indexes, defaults, nullability, and delete/update actions;
+- many-to-many relations become deduplicated derived join tables with `NOT NULL` FKs and unique pair constraints;
+- derived join tables receive their own `id`, `updated_at`, trigger, and view;
+- each table has a `<table>_view` with nested `one` objects and `many` arrays;
+- UUIDs are exposed as canonical strings in views;
 - the development baseline was regenerated from scratch;
 - generation is idempotent: running it twice produces one migration;
 - migration application is idempotent: running it twice succeeds;
-- the baseline has exactly one `updated_at` trigger per table;
-- builder, post-processing, export, and idempotency tests pass.
+- the baseline has exactly one `updated_at` trigger per table and one view per table;
+- builder, derivation, view, post-processing, export, and idempotency tests pass.
 
-The next milestone is Phase 2: materialize `x-relations` into foreign keys, inverse one-to-many relations, and deduplicated many-to-many join tables.
+The next milestone is Phase 4: serve the generated tables and views as JSON:API resources through Hono.
 
 ---
 
