@@ -536,9 +536,15 @@ Views are generated as custom DDL and tracked by hash in `.drizzle/custom-ddl-st
 
 ## API
 
-The HTTP layer is JSON:API over Hono.
+The HTTP layer is JSON:API 1.0 over Hono. It reads the generated `<table>_view` views, so relation values arrive as nested JSON and the API does not join base tables at request time.
 
-### Resources
+### Endpoints
+
+```text
+GET /             resource catalog
+GET /:type        collection
+GET /:type/:id    single resource
+```
 
 Resource types are the snake_case table names:
 
@@ -550,48 +556,83 @@ Resource types are the snake_case table names:
 /tag
 ```
 
-### Collection endpoints
-
-```text
-GET /:type
-GET /:type/:id
-```
-
-Planned query support:
-
-- `page[number]`
-- `page[size]`
-- `sort`
-- `filter[field]`
-- `fields[type]`
-- `include`
-
-### Documents
+The catalog describes each resource without querying any rows:
 
 ```json
 {
-  "data": {
-    "type": "article",
-    "id": "019...",
-    "attributes": {
-      "heading": "Hello",
-      "subheading": "World",
-      "content": "..."
-    },
-    "relationships": {
-      "tag": {
-        "links": {
-          "related": "/article/019.../tag"
-        }
+  "meta": {
+    "resources": [
+      {
+        "type": "article",
+        "attributes": ["updated_at", "heading", "subheading", "content"],
+        "relationships": ["tag"]
       }
-    }
+    ]
   }
 }
 ```
 
+### Query parameters
+
+Collections support:
+
+- `page[number]` — 1-based page number, default `1`;
+- `page[size]` — rows per page, default `20`, maximum `100`;
+- `sort` — comma-separated fields, prefix a field with `-` for descending order;
+- `filter[field]` — equality filter, repeatable for multiple `AND` conditions;
+- `fields[type]` — comma-separated attributes and relationship labels for sparse fieldsets;
+- `include` — comma-separated relationship labels to add to the compound document.
+
+Single-resource requests accept `fields[type]` and `include`. The same parser validates all query parameters, so sorting and pagination parameters are accepted but do not change a single-resource response.
+
+Sorting and filtering only allow base view columns. Relationship labels are not SQL columns and are rejected. Unknown fields or types in `fields[...]`, unknown relationship labels, and out-of-range pagination values return `400` with a JSON:API error whose `source.parameter` identifies the bad parameter.
+
+Relationship loading is deliberately limited for now:
+
+- `include` supports direct relationships of the primary resource;
+- nested paths such as `include=tag.articles` are not implemented;
+- included resources are serialized without relationships, so their `relationships` object is empty.
+
+### Documents
+
+A collection response looks like this:
+
+```json
+{
+  "jsonapi": { "version": "1.0" },
+  "data": [
+    {
+      "type": "article",
+      "id": "0190c9d2-7c4a-7b3e-9a11-2f7a8f9b1c22",
+      "attributes": {
+        "updated_at": 1731092400000,
+        "heading": "Hello",
+        "subheading": null,
+        "content": "..."
+      },
+      "relationships": {
+        "tag": {
+          "data": [
+            { "type": "tag", "id": "0190c9d2-8d5b-7c4f-8b22-3a8b9a0c2d33" }
+          ]
+        }
+      }
+    }
+  ],
+  "included": [],
+  "meta": {
+    "page": { "number": 1, "size": 20, "total": 1, "pages": 1 }
+  }
+}
+```
+
+A single-resource response has an object in `data` and no pagination `meta`.
+
+Attributes contain every non-relational column except `id`, including `updated_at`. Foreign-key columns and relation labels are omitted. Relationships contain resource identifier objects only; relationship links are not generated yet. A `one` relationship serializes as one identifier or `null`, and a `many` relationship serializes as an array.
+
 ### IDs
 
-The database uses UUIDv7 blobs. JSON:API requires string IDs, so the API layer converts blob IDs to canonical UUID strings.
+The database stores UUIDv7 values as blobs. Views cast them to canonical UUID strings, and the API uses those strings as JSON:API `id` values and as lookup values in `GET /:type/:id`.
 
 ### Errors
 
@@ -601,16 +642,16 @@ Errors use the JSON:API error format:
 {
   "errors": [
     {
-      "status": "422",
-      "title": "Validation failed",
-      "detail": "heading must be at least 2 characters",
-      "source": { "pointer": "/data/attributes/heading" }
+      "status": "400",
+      "title": "Bad Request",
+      "detail": "Cannot sort by unknown field \"tag\"",
+      "source": { "parameter": "sort" }
     }
   ]
 }
 ```
 
-The content type is `application/vnd.api+json`.
+Invalid queries and unsupported resource operations return `400`, unknown resource types, IDs, and routes return `404`, and unexpected failures return `500`. Every response, including errors, uses the content type `application/vnd.api+json`.
 
 ---
 
@@ -825,22 +866,28 @@ Typed Drizzle view mappings and JSON:API `include` are deferred to the API phase
 
 **Goal:** serve generated resources over Hono.
 
+Status: complete.
+
 Deliverables:
 
-- Hono application and resource registry;
-- `ts-japi` serializers;
-- collection and single-resource endpoints;
-- pagination, sorting, filtering, sparse fieldsets, and `include`;
+- Hono application and resource registry built from `BuiltSchema`;
+- `ts-japi` serializers and relators created per request;
+- resource catalog at `GET /`;
+- collection and single-resource endpoints backed by `<table>_view`;
+- pagination, sorting, filtering, sparse fieldsets, and direct `include`;
 - JSON:API error responses;
-- blob UUID to string conversion;
-- contract tests.
+- canonical string UUIDs in documents and lookups;
+- contract tests with an in-memory row database.
 
 Exit criteria:
 
 - `GET /article` and `GET /article/:id` return valid JSON:API documents;
-- `include` resolves relationships;
-- invalid requests return JSON:API errors;
-- content type is `application/vnd.api+json`.
+- `include` resolves direct relationships from embedded view JSON;
+- invalid requests return JSON:API errors with parameter sources;
+- content type is `application/vnd.api+json`;
+- server code consumes the same generated schema as migrations.
+
+Nested include paths, relationship links, and typed Drizzle view mappings remain future work.
 
 ### Phase 5 — Authentication
 
@@ -948,8 +995,13 @@ src/
     *.test.ts
   server/
     app.ts
-    resources/
-    serializers/
+    registry.ts
+    query.ts
+    serialize.ts
+    errors.ts
+    database.ts
+    index.ts
+    app.test.ts
   helper/
     loadDb.ts
 .drizzle/                 generated migrations and custom-ddl-state.json
@@ -1032,7 +1084,7 @@ Idempotency tests are mandatory: generation and migration must be safe to re-run
 
 Serber is in early development.
 
-Phase 0–3 is complete:
+Phases 0–4 are complete:
 
 - the generator is split into schema loading, relation derivation, deterministic building, view generation, export generation, migration post-processing, custom-DDL state, and reset modules;
 - system schemas for `user`, `user_group`, `key`, and `schema` are loaded alongside user schemas;
@@ -1045,9 +1097,13 @@ Phase 0–3 is complete:
 - generation is idempotent: running it twice produces one migration;
 - migration application is idempotent: running it twice succeeds;
 - the baseline has exactly one `updated_at` trigger per table and one view per table;
-- builder, derivation, view, post-processing, export, and idempotency tests pass.
+- builder, derivation, view, post-processing, export, and idempotency tests pass;
+- a Hono application serves the generated views as JSON:API collections and single resources;
+- the API supports pagination, sorting, equality filters, sparse fieldsets, and direct `include`;
+- invalid requests return JSON:API errors, and all responses use `application/vnd.api+json`;
+- API contract tests run against an in-memory row database and the real development database has been checked manually.
 
-The next milestone is Phase 4: serve the generated tables and views as JSON:API resources through Hono.
+The next milestone is Phase 5: OPAQUE registration/login and session signing keys.
 
 ---
 
