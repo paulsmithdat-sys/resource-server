@@ -1,0 +1,30 @@
+export const groupSchema =
+  { $schema: "https://json-schema.org/draft/2020-12/schema"
+  , title: "Group"
+  , type: "object"
+  , additionalProperties: false
+  , description: "A group of users used for roles and sharing"
+  , "x-system": true
+  , properties:
+    { name:
+      { description: "Unique group name"
+      , type: "string"
+      , minLength: 1
+      , maxLength: 100
+      , "x-unique": true
+      }
+    , description:
+      { description: "Group description"
+      , type: "string"
+      , maxLength: 500
+      }
+    }
+  , "x-relations":
+    { users:
+      { table: "user"
+      , column: "id"
+      , cardinality: "many"
+      , through: "user_group"
+      }
+    }
+  }
