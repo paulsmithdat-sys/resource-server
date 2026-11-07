@@ -1,13 +1,17 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "402d804e-96a8-4ced-be06-5215161d16e5",
+  "id": "dff07718-9ff8-40bb-8ab0-08035bd8b826",
   "prevIds": [
-    "a786d1b1-1ae9-4c30-9c2a-9c2d2b5bb9ed"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
       "name": "article",
+      "entityType": "tables"
+    },
+    {
+      "name": "group",
       "entityType": "tables"
     },
     {
@@ -24,14 +28,6 @@
     },
     {
       "name": "user",
-      "entityType": "tables"
-    },
-    {
-      "name": "user_group",
-      "entityType": "tables"
-    },
-    {
-      "name": "user_group2",
       "entityType": "tables"
     },
     {
@@ -92,6 +88,46 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
+      "table": "group"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))",
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "group"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "group"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "description",
+      "entityType": "columns",
+      "table": "group"
+    },
+    {
+      "type": "blob",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "(uuid7())",
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
       "table": "key"
     },
     {
@@ -110,37 +146,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "table": "key"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "key_data",
-      "entityType": "columns",
-      "table": "key"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "longevity",
-      "entityType": "columns",
-      "table": "key"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "purpose",
+      "name": "jwk",
       "entityType": "columns",
       "table": "key"
     },
@@ -175,7 +181,7 @@
       "table": "schema"
     },
     {
-      "type": "blob",
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -265,84 +271,14 @@
       "table": "user"
     },
     {
-      "type": "blob",
-      "notNull": false,
-      "autoincrement": false,
-      "default": "(uuid7())",
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "user_group"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))",
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "user_group"
-    },
-    {
       "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "username",
+      "name": "display_name",
       "entityType": "columns",
-      "table": "user_group"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "email",
-      "entityType": "columns",
-      "table": "user_group"
-    },
-    {
-      "type": "blob",
-      "notNull": false,
-      "autoincrement": false,
-      "default": "(uuid7())",
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "user_group2"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))",
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "user_group2"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "username",
-      "entityType": "columns",
-      "table": "user_group2"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "email",
-      "entityType": "columns",
-      "table": "user_group2"
+      "table": "user"
     },
     {
       "columns": [
@@ -351,6 +287,15 @@
       "nameExplicit": false,
       "name": "article_pk",
       "table": "article",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "group_pk",
+      "table": "group",
       "entityType": "pks"
     },
     {
@@ -391,21 +336,39 @@
     },
     {
       "columns": [
-        "id"
+        "name"
       ],
       "nameExplicit": false,
-      "name": "user_group_pk",
-      "table": "user_group",
-      "entityType": "pks"
+      "name": "group_name_unique",
+      "entityType": "uniques",
+      "table": "group"
     },
     {
       "columns": [
-        "id"
+        "table_name"
       ],
       "nameExplicit": false,
-      "name": "user_group2_pk",
-      "table": "user_group2",
-      "entityType": "pks"
+      "name": "schema_table_name_unique",
+      "entityType": "uniques",
+      "table": "schema"
+    },
+    {
+      "columns": [
+        "username"
+      ],
+      "nameExplicit": false,
+      "name": "user_username_unique",
+      "entityType": "uniques",
+      "table": "user"
+    },
+    {
+      "columns": [
+        "email"
+      ],
+      "nameExplicit": false,
+      "name": "user_email_unique",
+      "entityType": "uniques",
+      "table": "user"
     }
   ],
   "renames": []

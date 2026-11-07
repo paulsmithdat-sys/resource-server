@@ -1,4 +1,4 @@
-CREATE TABLE `article` (
+CREATE TABLE IF NOT EXISTS `article` (
 	`id` blob PRIMARY KEY DEFAULT (uuid7()),
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
 	`heading` text,
@@ -6,109 +6,119 @@ CREATE TABLE `article` (
 	`content` text
 );
 --> statement-breakpoint
-CREATE TABLE `key` (
+CREATE TABLE IF NOT EXISTS `group` (
 	`id` blob PRIMARY KEY DEFAULT (uuid7()),
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
-	`user_id` text,
-	`key_data` text,
-	`longevity` text,
-	`purpose` text
+	`name` text UNIQUE,
+	`description` text
 );
 --> statement-breakpoint
-CREATE TABLE `schema` (
+CREATE TABLE IF NOT EXISTS `key` (
 	`id` blob PRIMARY KEY DEFAULT (uuid7()),
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
-	`table_name` text,
-	`jsonschema` blob
+	`jwk` text
 );
 --> statement-breakpoint
-CREATE TABLE `tag` (
+CREATE TABLE IF NOT EXISTS `schema` (
+	`id` blob PRIMARY KEY DEFAULT (uuid7()),
+	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
+	`table_name` text UNIQUE,
+	`jsonschema` text
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `tag` (
 	`id` blob PRIMARY KEY DEFAULT (uuid7()),
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
 	`name` text,
 	`kind` text
 );
 --> statement-breakpoint
-CREATE TABLE `user` (
+CREATE TABLE IF NOT EXISTS `user` (
 	`id` blob PRIMARY KEY DEFAULT (uuid7()),
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
-	`username` text,
-	`email` text
+	`username` text UNIQUE,
+	`email` text UNIQUE,
+	`display_name` text
 );
 --> statement-breakpoint
-CREATE TABLE `user_group` (
-	`id` blob PRIMARY KEY DEFAULT (uuid7()),
-	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
-	`username` text,
-	`email` text
-);
+DROP TRIGGER IF EXISTS `article_updated`;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS tag_updated
-AFTER UPDATE ON tag
+CREATE TRIGGER IF NOT EXISTS `article_updated`
+AFTER UPDATE ON `article`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE tag
+    UPDATE `article`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
     WHERE id = OLD.id;
 END;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS article_updated
-AFTER UPDATE ON article
+DROP TRIGGER IF EXISTS `group_updated`;
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `group_updated`
+AFTER UPDATE ON `group`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE article
+    UPDATE `group`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
     WHERE id = OLD.id;
 END;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS key_updated
-AFTER UPDATE ON key
+DROP TRIGGER IF EXISTS `key_updated`;
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `key_updated`
+AFTER UPDATE ON `key`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE key
+    UPDATE `key`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
     WHERE id = OLD.id;
 END;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS schema_updated
-AFTER UPDATE ON schema
+DROP TRIGGER IF EXISTS `schema_updated`;
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `schema_updated`
+AFTER UPDATE ON `schema`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE schema
+    UPDATE `schema`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
     WHERE id = OLD.id;
 END;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS user_updated
-AFTER UPDATE ON user
+DROP TRIGGER IF EXISTS `tag_updated`;
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `tag_updated`
+AFTER UPDATE ON `tag`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE user
+    UPDATE `tag`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
     WHERE id = OLD.id;
 END;
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS user_group_updated
-AFTER UPDATE ON user_group
+DROP TRIGGER IF EXISTS `user_updated`;
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS `user_updated`
+AFTER UPDATE ON `user`
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE user_group
+    UPDATE `user`
     SET updated_at = CAST(
       (julianday('now') - 2440587.5) * 86400000 AS INTEGER
     )
