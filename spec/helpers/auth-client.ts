@@ -2,10 +2,23 @@ import * as opaque from '@serenity-kit/opaque'
 import type { Hono } from 'hono'
 import { generateKeyPair } from '../../src/auth/keys.ts'
 
+export const JSON_HEADERS = { 'content-type': 'application/json' }
+
 export type AuthResponse<T> =
   { response: Response
   , document: T
   }
+
+export const authCredentials =
+  { username: 'alice'
+  , email: 'alice@example.com'
+  , password: 'correct horse battery staple'
+  , displayName: 'Alice'
+  }
+
+export const credentials =
+  (overrides: Partial<typeof authCredentials> = {}) =>
+    ({ ...authCredentials, ...overrides })
 
 const post =
   async <T>(app: Hono, path: string, body: unknown) => {
@@ -13,7 +26,7 @@ const post =
       await app.request(
         path
         , { method: 'POST'
-          , headers: { 'content-type': 'application/json' }
+          , headers: JSON_HEADERS
           , body: JSON.stringify(body)
           })
     const document = await response.json() as T
@@ -26,12 +39,42 @@ const patch =
       await app.request(
         path
         , { method: 'PATCH'
-          , headers: { 'content-type': 'application/json' }
+          , headers: JSON_HEADERS
           , body: JSON.stringify(body)
           })
     const document = await response.json() as T
     return { response, document }
   }
+
+export const postKey =
+  async (app: Hono, body: unknown) =>
+    await app.request(
+      '/key'
+      , { method: 'POST'
+        , headers: JSON_HEADERS
+        , body: JSON.stringify(body)
+        })
+
+export const patchKey =
+  async (app: Hono, id: string, body: unknown) =>
+    await app.request(
+      `/key/${id}`
+      , { method: 'PATCH'
+        , headers: JSON_HEADERS
+        , body: JSON.stringify(body)
+        })
+
+export const deleteKey =
+  async (app: Hono, id: string) =>
+    await app.request(`/key/${id}`, { method: 'DELETE' })
+
+export const headKey =
+  async (app: Hono, id: string) =>
+    await app.request(`/key/${id}`, { method: 'HEAD' })
+
+export const optionsKey =
+  async (app: Hono, id?: string) =>
+    await app.request(id ? `/key/${id}` : '/key', { method: 'OPTIONS' })
 
 export type RegistrationStartDocument =
   { id: string
@@ -107,22 +150,28 @@ export const startRegistration =
     }
   }
 
+export const completeClientRegistration =
+  (start: Awaited<ReturnType<typeof startRegistration>>) =>
+    opaque.client.finishRegistration(
+      { clientRegistrationState: start.clientRegistrationState
+      , registrationResponse: start.document.registrationResponse
+      , password: start.input.password
+      }).registrationRecord
+
+export const sendFinishRegistration =
+  async (
+    app: Hono,
+    id: string,
+    registrationRecord: string) =>
+    await patch<RegistrationFinishDocument>(
+      app, `/key/${id}`, { registrationRecord })
+
 export const finishRegistration =
   async (
     app: Hono,
-    start: Awaited<ReturnType<typeof startRegistration>>) => {
-    const { registrationRecord } =
-      opaque.client.finishRegistration(
-        { clientRegistrationState: start.clientRegistrationState
-        , registrationResponse: start.document.registrationResponse
-        , password: start.input.password
-        })
-
-    return await patch<RegistrationFinishDocument>(
-      app
-      , `/key/${start.document.id}`
-      , { registrationRecord })
-  }
+    start: Awaited<ReturnType<typeof startRegistration>>) =>
+    await sendFinishRegistration(
+      app, start.document.id, completeClientRegistration(start))
 
 export const register =
   async (
@@ -180,24 +229,33 @@ export const startLogin =
     }
   }
 
+export const completeClientLogin =
+  (start: Awaited<ReturnType<typeof startLogin>>) =>
+    opaque.client.finishLogin(
+      { clientLoginState: start.clientLoginState
+      , loginResponse: start.document.loginResponse
+      , password: start.input.password
+      })
+
+export const sendFinishLogin =
+  async (
+    app: Hono,
+    id: string,
+    finishLoginRequest: string) =>
+    await patch<LoginFinishDocument>(
+      app, `/key/${id}`, { finishLoginRequest })
+
 export const finishLogin =
   async (
     app: Hono,
     start: Awaited<ReturnType<typeof startLogin>>) => {
-    const loginResult =
-      opaque.client.finishLogin(
-        { clientLoginState: start.clientLoginState
-        , loginResponse: start.document.loginResponse
-        , password: start.input.password
-        })
+    const loginResult = completeClientLogin(start)
 
     if (!loginResult) return undefined
 
     const result =
-      await patch<LoginFinishDocument>(
-        app
-        , `/key/${start.document.id}`
-        , { finishLoginRequest: loginResult.finishLoginRequest })
+      await sendFinishLogin(
+        app, start.document.id, loginResult.finishLoginRequest)
 
     return { ...result, sessionKey: loginResult.sessionKey }
   }

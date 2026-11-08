@@ -49,7 +49,7 @@ export const applyMigrations =
   }
 
 export const createTestServer =
-  async () => {
+  async (options: { auth?: boolean } = {}) => {
     const connection =
       await connect(
         ':memory:'
@@ -60,7 +60,9 @@ export const createTestServer =
     const db = createRowDatabase(connection)
     const built = buildSchema(await loadSchemas())
     const app =
-      createApp({ built, db, opaqueServerSetup })
+      options.auth === false
+        ? createApp({ built, db })
+        : createApp({ built, db, opaqueServerSetup })
 
     return { app, db, built, connection }
   }
