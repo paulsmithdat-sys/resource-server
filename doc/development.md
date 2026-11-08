@@ -1,0 +1,226 @@
+# Development
+
+## Requirements
+
+- Bun 1.4 or newer;
+- a writable directory for the SQLite/Turso database;
+- an OPAQUE server setup value.
+
+## Install
+
+```bash
+bun install
+```
+
+## Environment
+
+Create `.env` in the project root:
+
+```bash
+DB_PATH=.db
+ELYSIA_PORT=5734
+OPAQUE_SERVER_SETUP=...
+```
+
+`.env` is gitignored. Never commit server secrets.
+
+Generate a server setup once:
+
+```bash
+bunx @serenity-kit/opaque create-server-setup
+```
+
+`OPAQUE_SERVER_SETUP` is required by `src/server/index.ts`. The server throws at
+startup if it is missing.
+
+## Commands
+
+```bash
+# generate the dynamic Drizzle export and a migration
+bun run db:generate
+
+# apply migrations
+bun run db:migrate
+
+# reset the development database and migration baseline
+bun run db:reset
+
+# run all tests
+bun test
+
+# type-check
+bunx tsc --noEmit
+
+# run the API server with watch mode
+bun run dev
+
+# run the API server once
+bun run start
+```
+
+## Database and migrations
+
+The database file is `DB_PATH` (default `.db`). Drizzle Kit generates migrations
+into `.drizzle/<timestamp>/migration.sql`. Applied migrations are immutable.
+
+Triggers and views are tracked by hashes in `.drizzle/custom-ddl-state.json`.
+Do not edit generated files in `.drizzle/` or `.drizzleExports/` by hand.
+
+`bun run db:generate`:
+
+1. loads and builds the schema;
+2. writes `.drizzleExports/index.ts` if it changed;
+3. asks Drizzle Kit to generate a migration;
+4. appends changed trigger/view SQL and drops removed triggers/views;
+5. updates custom-DDL hashes.
+
+Running it twice with unchanged schemas must not create a second migration.
+
+`bun run db:migrate` applies pending migrations. Running it twice must succeed.
+
+`bun run db:reset` removes the development database and migration baseline. Use
+it only when you intentionally want to rebuild from scratch.
+
+### Foreign keys
+
+SQLite disables foreign-key enforcement unless it is enabled per connection.
+The application enables it in `src/helper/loadDb.ts`:
+
+```sql
+PRAGMA foreign_keys = ON
+```
+
+The test harness does the same after connecting. Without it, `ON DELETE SET
+NULL`, `ON DELETE RESTRICT`, and owner-to-user checks would not run.
+
+## Tests
+
+```bash
+bun test
+```
+
+The suite includes:
+
+- schema building, relation derivation, views, custom DDL, and migrations;
+- idempotent generation and migration application;
+- `x-exposed` behavior for tables, columns, relations, and join tables;
+- owner column injection, user foreign key, index, validation, and
+  `ON DELETE SET NULL`;
+- JSON:API documents, queries, writes, `HEAD`, and `OPTIONS`;
+- OPAQUE registration, login, sessions, unknown users, expiry, replay, and
+  keypair freshness;
+- auth route validation and hidden key status.
+
+Most `spec/` tests create an in-memory Turso database, apply every migration in
+sorted order, build the schema, and call the Hono app through
+`app.request(...)`. `spec/helpers/test-server.ts` provides the harness;
+`spec/helpers/auth-client.ts` provides OPAQUE client helpers.
+
+Tests do not use the development `.db` file, so they can run while the dev
+server is open.
+
+### Adding auth coverage
+
+Use the helpers instead of reimplementing OPAQUE:
+
+```ts
+import { login, register } from './helpers/auth-client.ts'
+
+const { userId } = await register(app, {
+  username: 'alice',
+  email: 'alice@example.com',
+  password: 'correct horse battery staple',
+})
+
+const { sessionKey, finish } = await login(app, {
+  username: 'alice',
+  password: 'correct horse battery staple',
+})
+```
+
+For expiry and purge tests, update `key.expires_at` directly through the test
+row database.
+
+## Adding a schema
+
+1. Add `src/schema/<name>.ts` exporting a JSON Schema object.
+2. Use a unique `title`; it becomes the snake_case table name.
+3. Declare relations under `x-relations`.
+4. Run `bun run db:generate`.
+5. Inspect the generated migration.
+6. Run `bun run db:migrate`.
+7. Add seed and API tests if the resource should be user-visible.
+
+The generator injects `id`, `updated_at`, and `owner`, so do not add them unless
+you need explicit control.
+
+### Hiding a resource or field
+
+Set `"x-exposed": false` on the table, property, or relation. Hidden targets
+automatically hide relations that point at them. Hidden resources are absent
+from the catalog, views, queries, mutations, and generic routes.
+
+The `key` table is hidden this way. If you add another hidden table, expose it
+through a dedicated service and route in `src/server/app.ts`, before the generic
+`/:type` routes.
+
+## Server startup
+
+`src/server/index.ts`:
+
+1. loads `.env`;
+2. requires `OPAQUE_SERVER_SETUP`;
+3. builds the schema from all system and user schemas;
+4. opens the Turso database with foreign keys enabled;
+5. creates the Hono app with the built schema, row database, and OPAQUE setup;
+6. serves it on `ELYSIA_PORT` (default `5734`).
+
+`createApp` accepts an optional `opaqueServerSetup`. Without it, auth routes are
+not registered, which keeps auth-free unit tests simple.
+
+## Conventions
+
+- JSON Schema is the source of truth.
+- Table and column names are snake_case.
+- IDs are UUIDv7 blobs, exposed as canonical strings.
+- Every table has `id`, `updated_at`, and `owner`.
+- Generated files are not edited by hand.
+- Applied migrations are immutable.
+- Auth state is persisted in the key table; no in-memory sessions.
+- Auth success bodies are plain JSON; errors use JSON:API.
+- Owner references must be users, never groups.
+- `key.user` uses `RESTRICT` to preserve key attribution.
+- `owner` uses `SET NULL` to preserve rows when a user is deleted.
+
+## Troubleshooting
+
+### `OPAQUE_SERVER_SETUP is required`
+
+Add the variable to `.env` and restart the server.
+
+### Database is locked
+
+The dev server holds the development `.db` file. Tests use `:memory:` and do
+not touch it. If you run migration commands while the dev server is open, stop
+the server first.
+
+### A migration did not change
+
+Custom DDL only generates a migration when its hash changes. Confirm that the
+generated SQL actually differs. Applied migrations are never rewritten.
+
+### Foreign keys are not enforced
+
+Check that the connection executed `PRAGMA foreign_keys = ON`. The app does this
+in `loadDb.ts`; custom connections must do it themselves.
+
+### Login always returns 401
+
+Check that:
+
+- the registration flow finished successfully;
+- the key row still exists and has not expired;
+- the client uses the same password and OPAQUE state;
+- `OPAQUE_SERVER_SETUP` did not change between registration and login.
+
+Changing the server setup invalidates existing registration records.

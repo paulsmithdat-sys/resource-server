@@ -10,7 +10,7 @@ The project is built on:
 - **Drizzle ORM** for typed queries and migrations.
 - **Hono** for the HTTP layer.
 - **JSON:API** as the API contract.
-- **OPAQUE** and **tweetnacl** for authentication and session signing.
+- **OPAQUE** and **tweetnacl** for authentication and session keypairs.
 - **AJV** and JSON Schema for validation.
 
 ---
@@ -26,6 +26,7 @@ The project is built on:
 - [Relations](#relations)
 - [Views](#views)
 - [API](#api)
+- [Documentation](#documentation)
 - [Security model](#security-model)
 - [Idempotency and migrations](#idempotency-and-migrations)
 - [Roadmap](#roadmap)
@@ -83,16 +84,18 @@ The backend itself is generated from a small number of trusted, tested rules. Th
 
 The backend should be safe without requiring every frontend developer to become a security specialist.
 
-The intended security model includes:
+The implemented security baseline includes:
 
 - **OPAQUE** for password-authenticated key exchange, so passwords are never sent to the server;
-- **tweetnacl** session signing keys for authenticity and non-repudiation;
+- **tweetnacl** Ed25519 keypairs for registration and login flows;
 - **user-owned keys**, stored as JWK representations;
-- short-lived session keys and long-term keys with separate authorization;
+- short-lived login state and 24-hour sessions with automatic purge;
 - group-based sharing built on multiple independently authorized keys;
 - centralized authorization checks rather than per-endpoint ad hoc logic.
 
-The cryptography is not implemented in the early phases. The data model reserves the necessary tables and columns so the security layer can be added without redesigning the schema.
+Phase 5 implements OPAQUE registration, login, and session records. Request
+signing, owner-based authorization, and group sharing are planned for Phase 6.
+The data model already reserves the tables and columns they need.
 
 ### 4. Token-efficient generation
 
@@ -256,8 +259,18 @@ Every table, including join tables, receives:
 | --- | --- | --- |
 | `id` | `blob` | Primary key, default `uuid7()` |
 | `updated_at` | `integer` timestamp | Defaults to the current time |
+| `owner` | `blob`, nullable | FK to `user.id`, indexed, `ON DELETE SET NULL` |
 
 `created_at` is intentionally omitted: a UUIDv7 already carries a timestamp.
+
+`owner` records which user owns a row. It is exposed as a normal JSON:API
+attribute, not as a relationship. It is always a foreign key to `user.id`, never
+to `user_group.id`. Writes reject group ids, unknown user ids, and malformed
+values. Deleting a user sets the row's owner to `null`. Because `user` is a
+table too, `user.owner` is a self-referencing foreign key.
+
+Authorization is not based on `owner` yet; owner-versus-other-user checks are
+deferred to Phase 6.
 
 ### System schemas
 
@@ -271,7 +284,7 @@ System schemas are always loaded, even when user schemas change.
 
 Relations:
 
-- `keys` — one user has many keys
+- `keys` — one user has many keys, hidden because `key` itself is hidden
 - `groups` — many-to-many membership
 
 #### `user_group`
@@ -283,10 +296,28 @@ A group has many users through the derived `user_group_membership` join table. G
 
 #### `key`
 
-- `jwk` — JSON Web Key representation, stored as JSON text
-- `user_id` — FK to `user.id`
+The `key` table is the persistence layer for authentication. It is marked
+`"x-exposed": false`, so it has no generic JSON:API resource, no public view,
+and no catalog entry. The `/key` auth routes are the only access path.
 
-Keys are owned by users, never by groups. This is required for non-repudiation: a key belongs to the identity that created it. Group sharing will later be implemented by distributing multiple keys, each with its own authorization.
+Columns:
+
+- `type` — `jwk`, `opaque_registration`, `opaque_login_state`, or `session`;
+- `jwk` — server-side JWK or client public JWK, depending on the row type;
+- `client_jwk` — client public JWK for login and session rows;
+- `material` — registration record, OPAQUE login state, or raw session key;
+- `expires_at` — expiry for temporary state;
+- `consumed_at` — when one-time state was consumed;
+- `user_id` — FK to `user.id`.
+
+Keys are owned by users, never by groups. This is required for non-repudiation:
+a key belongs to the identity that created it. Group sharing will later be
+implemented by distributing multiple keys, each with its own authorization. The
+`key.user` relation uses `ON DELETE RESTRICT` so key history remains
+attributable.
+
+See [doc/auth.md](doc/auth.md) and [doc/data-model.md](doc/data-model.md) for the
+full row lifecycle.
 
 #### `schema`
 
@@ -328,6 +359,7 @@ A schema title becomes the snake_case table name:
 | `x-unique` | Unique constraint |
 | `x-primary` | Custom primary key |
 | `x-system` | Always-loaded system schema |
+| `x-exposed` | `false` hides a table, property, or relation |
 | `x-relations` | Relation metadata |
 | `x-unique-constraints` | Table-level unique constraints over column groups |
 
@@ -347,6 +379,23 @@ A schema title becomes the snake_case table name:
 | string `enum` | `text` with enum typing |
 
 Column names are snake_cased. API attribute names may remain as declared in the schema.
+
+### `x-exposed`
+
+`x-exposed` defaults to `true`. Setting it to `false` removes a table, property,
+or relation from the public surface:
+
+- a hidden table has no registry resource, no public view, no catalog entry, and
+  no generic `/:type` routes;
+- a hidden property is omitted from views, serializers, query fields, and write
+  validation;
+- a hidden relation is omitted from the registry and `include` validation;
+- relations that target a hidden table are hidden automatically;
+- a derived join table is hidden when either endpoint or the relation is hidden.
+
+The `key` table uses this to keep authentication state reachable only through
+`/key`. Hidden data still exists in the database and remains accessible to
+trusted server code. The value must be a boolean.
 
 ### Example
 
@@ -418,6 +467,7 @@ Relations are declared under `x-relations`.
 | `required` | Whether a derived `one` FK column is `NOT NULL` |
 | `onDelete` | FK delete behavior |
 | `onUpdate` | FK update behavior |
+| `x-exposed` | `false` hides the relation |
 
 ### `one`
 
@@ -552,15 +602,31 @@ OPTIONS /:type           advertised collection methods
 OPTIONS /:type/:id       advertised single-resource methods
 ```
 
+Authentication has its own plain-JSON surface, registered before the generic
+resource routes:
+
+```text
+POST    /key             start registration or login
+GET     /key/:id         safe key status
+HEAD    /key/:id         headers for key status
+PATCH   /key/:id         finish registration or login
+DELETE  /key/:id         delete a session or abort a flow
+OPTIONS /key
+OPTIONS /key/:id
+```
+
 Resource types are the snake_case table names:
 
 ```text
 /user
 /user_group
-/key
+/schema
 /article
 /tag
 ```
+
+`key` is hidden, so `GET /key` falls through to the generic collection handler
+and returns `404`. Use the auth routes instead. See [doc/auth.md](doc/auth.md).
 
 The catalog describes each resource without querying any rows:
 
@@ -570,7 +636,7 @@ The catalog describes each resource without querying any rows:
     "resources": [
       {
         "type": "article",
-        "attributes": ["updated_at", "heading", "subheading", "content"],
+        "attributes": ["updated_at", "owner", "heading", "subheading", "content"],
         "relationships": ["tag"]
       }
     ]
@@ -634,7 +700,7 @@ A collection response looks like this:
 
 A single-resource response has an object in `data` and no pagination `meta`.
 
-Attributes contain every non-relational column except `id`, including `updated_at`. Foreign-key columns and relation labels are omitted. Relationships contain resource identifier objects only; relationship links are not generated yet. A `one` relationship serializes as one identifier or `null`, and a `many` relationship serializes as an array.
+Attributes contain every exposed non-relational column except `id`, including `updated_at` and `owner`. Foreign-key columns and relation labels are omitted. Relationships contain resource identifier objects only; relationship links are not generated yet. A `one` relationship serializes as one identifier or `null`, and a `many` relationship serializes as an array.
 
 ### Write operations
 
@@ -667,7 +733,7 @@ Write bodies are JSON:API resource objects:
 - `HEAD` returns the same status and headers as `GET` without a body.
 - `OPTIONS` returns `204` with an `Allow` header listing the supported methods.
 
-Writes validate the resource type, attribute names, types, enums, string lengths, required fields, and relationship identifier types. A `one` relationship writes its foreign-key column. A `many` relationship through a join table replaces that table's rows for the resource. Constraint violations return `409 Conflict`.
+Writes validate the resource type, attribute names, types, enums, string lengths, required fields, and relationship identifier types. A `one` relationship writes its foreign-key column. A `many` relationship through a join table replaces that table's rows for the resource. When `owner` is supplied, it must be a canonical UUID that references an existing user; group ids and unknown users are rejected. Constraint violations return `409 Conflict`.
 
 Mock documents for the user-defined schemas live in `src/seed/`. Tags are listed before articles so articles can reference existing tag IDs.
 
@@ -692,7 +758,20 @@ Errors use the JSON:API error format:
 }
 ```
 
-Invalid queries and malformed write documents return `400`, unknown resource types, IDs, and routes return `404`, constraint violations return `409`, and unexpected failures return `500`. Every response, including errors, uses the content type `application/vnd.api+json`.
+Invalid queries and malformed write documents return `400`, unknown resource types, IDs, and routes return `404`, invalid or expired auth state returns `401`, constraint violations return `409`, and unexpected failures return `500`. Every JSON:API response, including errors, uses the content type `application/vnd.api+json`. Auth success responses use `application/json`; auth errors use the JSON:API error format.
+
+---
+
+## Documentation
+
+Detailed documentation lives in [`doc/`](doc/README.md):
+
+- [Architecture](doc/architecture.md) — generation pipeline, runtime, routes, and failure behavior.
+- [Data model](doc/data-model.md) — default columns, `owner`, system tables, the hidden key store, joins, and views.
+- [Schema reference](doc/schema-reference.md) — keywords, `x-exposed`, relations, and validation rules.
+- [API](doc/api.md) — endpoints, queries, writes, status codes, and the owner attribute.
+- [Authentication](doc/auth.md) — OPAQUE registration/login, key rows, sessions, TTLs, and keypairs.
+- [Development](doc/development.md) — setup, commands, migrations, tests, and conventions.
 
 ---
 
@@ -702,35 +781,41 @@ Invalid queries and malformed write documents return `400`, unknown resource typ
 
 OPAQUE is used so that a password is never transmitted to the server.
 
-The intended flow:
+Implemented flow:
 
 1. Registration:
-   - the client performs OPAQUE registration;
-   - the server stores the registration record;
-   - the server setup remains in the server environment.
+   - the client starts OPAQUE registration;
+   - `POST /key` creates a pending key row and returns the OPAQUE registration response;
+   - `PATCH /key/:id` consumes the pending row, inserts the user, and stores the registration record.
 2. Login:
-   - the client and server perform the OPAQUE key exchange;
+   - `POST /key` creates a pending login row and returns the OPAQUE login response;
+   - `PATCH /key/:id` consumes the login state, verifies the OPAQUE exchange, and creates a session row;
    - the server never receives the plaintext password.
-3. Session establishment:
-   - the result is used to establish an authenticated session;
-   - session keys are issued with short lifetimes.
+3. Session:
+   - the raw OPAQUE session key is stored in the session key row;
+   - sessions expire after 24 hours;
+   - there is no refresh flow.
 
-The database reserves a user registration record field for this flow. The crypto implementation is deferred to a later phase.
+All temporary state is persisted in the hidden `key` table. Unknown usernames
+receive the same login-start response shape as known ones and fail with `401` at
+finish. Expired rows are purged automatically. See [doc/auth.md](doc/auth.md).
 
 ### tweetnacl and JWK
 
-Tweetnacl provides signing and encryption primitives.
+Tweetnacl provides the Ed25519 keypair operations used by the auth flow.
 
-The intended model:
+Implemented model:
 
 - a user owns one or more keys;
 - each key is stored as a JWK;
-- signing keys are used for non-repudiation;
-- session signing keys are exchanged during the authenticated session;
+- JWK keypairs are generated on both sides for every registration and login;
+- the registration server private key is ephemeral and discarded;
+- the login server private key and client public key are copied into the session row;
+- login and session keypairs are discarded when the session row expires or is deleted;
 - keys can be long-term or session-scoped;
-- group sharing is implemented later by distributing multiple keys, each with separate authorization.
+- group sharing will later distribute multiple keys, each with separate authorization.
 
-Keys are owned by users, never by groups. This preserves the link between a signature and the identity that owned the key.
+Keys are owned by users, never by groups. This preserves the link between a signature and the identity that owned the key. Request signing itself is deferred to Phase 6.
 
 ### Non-repudiation
 
@@ -758,18 +843,18 @@ The current baseline only contains the structural tables needed for that model.
 
 ### Threat model
 
-| Threat | Mitigation | Phase |
+| Threat | Mitigation | Status |
 | --- | --- | --- |
-| Plaintext password theft | OPAQUE, passwords never sent | 5 |
-| Replay attacks | OPAQUE session exchange, nonces, short-lived sessions | 5 |
-| Session key theft | short lifetimes, revocation, rotation | 5–6 |
-| Forged signatures | tweetnacl verification and user-owned keys | 5 |
-| Privilege escalation | centralized authorization checks | 6 |
-| SQL injection | Drizzle parameterization, no raw user SQL | 0–4 |
-| Schema injection | AJV validation and an allowlisted keyword set | 7 |
-| Migration corruption | immutable applied migrations, custom-DDL hashes | 1 |
-| Data loss | backups, WAL, migration tests | 8 |
-| Token/cost blowup | schema-only authoring and generated code | 7 |
+| Plaintext password theft | OPAQUE, passwords never sent | Implemented |
+| Replay attacks | one-time consume, OPAQUE exchange, short-lived pending state | Implemented |
+| Session key theft | 24-hour sessions, delete endpoint, automatic purge | Implemented |
+| Forged signatures | tweetnacl keypairs and user-owned keys | Keypairs implemented; signing deferred |
+| Privilege escalation | centralized authorization checks | Phase 6 |
+| SQL injection | Drizzle parameterization, no raw user SQL | Implemented |
+| Schema injection | AJV validation and an allowlisted keyword set | Phase 7 |
+| Migration corruption | immutable applied migrations, custom-DDL hashes | Implemented |
+| Data loss | backups, WAL, migration tests | Phase 8 |
+| Token/cost blowup | schema-only authoring and generated code | Phase 7 |
 
 ---
 
@@ -901,7 +986,7 @@ Exit criteria:
 - re-running generation does not duplicate views;
 - queries against views return canonical UUID strings.
 
-Typed Drizzle view mappings and JSON:API `include` are deferred to the API phase.
+Typed Drizzle view mappings and JSON:API `include` were delivered in Phase 4.
 
 ### Phase 4 — JSON:API
 
@@ -936,23 +1021,32 @@ Nested include paths, relationship links, and typed Drizzle view mappings remain
 
 ### Phase 5 — Authentication
 
-**Goal:** add OPAQUE registration/login and session signing keys.
+**Goal:** add OPAQUE registration/login and session keypairs.
+
+Status: complete.
 
 Deliverables:
 
-- registration and login endpoints;
+- `/key` routes for registration, login, status, and deletion;
 - server-side OPAQUE setup from the environment;
-- user registration record storage;
-- tweetnacl session signing key exchange;
-- JWK key storage;
-- session lifecycle and revocation.
+- stateless auth state persisted in the hidden `key` table;
+- user records created from pending registration state;
+- OPAQUE registration records, login state, and raw session keys stored in key rows;
+- tweetnacl Ed25519 keypairs generated for every flow;
+- JWK storage for server private keys and client public keys;
+- 24-hour sessions with automatic purge and a delete endpoint;
+- a hidden `key` resource and hidden `user.keys` relation through `x-exposed`;
+- auth, exposure, and owner integration tests.
 
-Exit criteria:
+Exit criteria met:
 
 - no plaintext password crosses the network;
-- registration and login tests pass;
-- session signatures verify;
-- revoked sessions fail closed.
+- registration and login tests pass, including duplicate, expiry, unknown-user, and replay cases;
+- session keypairs are fresh on every login and stored until expiry;
+- expired and deleted sessions fail closed;
+- key status never exposes key material.
+
+Request signing and owner-based authorization remain in Phase 6.
 
 ### Phase 6 — Authorization and sharing
 
@@ -1019,6 +1113,10 @@ Exit criteria:
 
 ```text
 src/
+  auth/
+    service.ts       OPAQUE registration/login/session lifecycle
+    routes.ts        /key HTTP surface
+    keys.ts          Ed25519 JWK helpers
   schema/
     system/
       user.ts
@@ -1050,13 +1148,23 @@ src/
     mutations.ts
     errors.ts
     database.ts
+    uuid.ts
     index.ts
     app.test.ts
   helper/
     loadDb.ts
+doc/
+  README.md
+  architecture.md
+  data-model.md
+  schema-reference.md
+  api.md
+  auth.md
+  development.md
 spec/
   helpers/
     test-server.ts
+    auth-client.ts
   get.test.ts
   post.test.ts
   put.test.ts
@@ -1064,6 +1172,8 @@ spec/
   delete.test.ts
   head.test.ts
   options.test.ts
+  auth.test.ts
+  owner.test.ts
 .drizzle/                 generated migrations and custom-ddl-state.json
 .drizzleExports/          generated Drizzle schema
 ```
@@ -1111,13 +1221,15 @@ The test suite should cover:
 
 - schema loading and validation;
 - table, relation, join-table, and view construction;
+- `x-exposed` on tables, columns, relations, and derived join tables;
+- the injected `owner` column, its user foreign key, index, validation, and `ON DELETE SET NULL`;
 - deterministic export generation;
 - migration idempotency;
 - trigger and view replacement;
 - FK enforcement;
 - JSON:API documents and errors;
 - `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` against seeded documents;
-- OPAQUE and tweetnacl flows when implemented.
+- OPAQUE registration, login, sessions, expiry, replay, unknown users, and keypair freshness.
 
 Idempotency tests are mandatory: generation and migration must be safe to re-run.
 
@@ -1127,17 +1239,20 @@ Idempotency tests are mandatory: generation and migration must be safe to re-run
 
 1. JSON Schema is the source of truth.
 2. Generated files are not edited by hand.
-3. Every table has `id` and `updated_at`.
+3. Every table has `id`, `updated_at`, and a nullable `owner`.
 4. IDs are UUIDv7 blobs.
 5. Table and column names are snake_case.
-6. Keys are owned by users, never groups.
-7. Applied migrations are immutable.
-8. Triggers and views are managed through custom-DDL state.
-9. Relation declarations are validated before generation.
-10. The API is JSON:API.
-11. No raw user SQL is executed.
-12. Generation is deterministic.
-13. A schema change is the only normal reason to add a migration.
+6. `owner` references `user.id` only, is indexed, and uses `ON DELETE SET NULL`.
+7. Keys are owned by users, never groups.
+8. Authentication state is persisted in the hidden `key` table.
+9. `x-exposed: false` removes a table, property, or relation from every public surface.
+10. Applied migrations are immutable.
+11. Triggers and views are managed through custom-DDL state.
+12. Relation declarations are validated before generation.
+13. The API is JSON:API; auth success bodies are plain JSON.
+14. No raw user SQL is executed.
+15. Generation is deterministic.
+16. A schema change is the only normal reason to add a migration.
 
 ---
 
@@ -1145,30 +1260,38 @@ Idempotency tests are mandatory: generation and migration must be safe to re-run
 
 Serber is in early development.
 
-Phases 0–4 are complete:
+Phases 0–5 are complete:
 
 - the generator is split into schema loading, relation derivation, deterministic building, view generation, export generation, migration post-processing, custom-DDL state, and reset modules;
 - system schemas for `user`, `user_group`, `key`, and `schema` are loaded alongside user schemas;
+- every table receives a nullable, indexed `owner` foreign key to `user.id` with `ON DELETE SET NULL`;
 - `one` relations become foreign keys with indexes, defaults, nullability, and delete/update actions;
 - many-to-many relations become deduplicated derived join tables with `NOT NULL` FKs and unique pair constraints;
-- derived join tables receive their own `id`, `updated_at`, trigger, and view;
+- derived join tables receive their own `id`, `updated_at`, `owner`, trigger, and view;
 - each table has a `<table>_view` with nested `one` objects and `many` arrays;
 - UUIDs are exposed as canonical strings in views;
+- `x-exposed: false` hides tables, columns, relations, and their derived join tables from the catalog, queries, and mutations;
 - the development baseline was regenerated from scratch;
 - generation is idempotent: running it twice produces one migration;
 - migration application is idempotent: running it twice succeeds;
 - the baseline has exactly one `updated_at` trigger per table and one view per table;
-- builder, derivation, view, post-processing, export, and idempotency tests pass;
+- builder, derivation, view, post-processing, export, idempotency, and exposure tests pass;
 - a Hono application serves the generated views as JSON:API collections and single resources;
 - the API supports pagination, sorting, equality filters, sparse fieldsets, and direct `include`;
 - create, replace, update, and delete endpoints write to generated tables and derived join tables;
-- writes validate attributes, required fields, relationship identifiers, and constraint failures;
+- writes validate attributes, required fields, relationship identifiers, owner references, and constraint failures;
 - `HEAD` and `OPTIONS` are supported with advertised methods;
+- OPAQUE registration and login are implemented through `/key`;
+- all temporary auth state lives in the hidden `key` table;
+- registration and login state expire after 10 minutes, sessions after 24 hours, and expired rows are purged automatically;
+- registration and login create fresh Ed25519 keypairs on both sides;
+- session status never exposes key material, and sessions can be deleted;
+- unknown usernames receive the same login-start response shape and fail with `401` at finish;
 - mock documents for user-defined schemas live in `src/seed/`;
-- invalid requests return JSON:API errors, and all responses use `application/vnd.api+json`;
-- API contract tests run against an in-memory row database, and `spec/` exercises every HTTP method against in-memory Turso databases created from the migrations.
+- invalid requests return JSON:API errors; JSON:API responses use `application/vnd.api+json` and auth success responses use `application/json`;
+- API and auth tests run against in-memory Turso databases created from all migrations.
 
-The next milestone is Phase 5: OPAQUE registration/login and session signing keys.
+The next milestone is Phase 6: request signing, owner-based authorization, and group sharing.
 
 ---
 
@@ -1185,8 +1308,11 @@ The next milestone is Phase 5: OPAQUE registration/login and session signing key
 | View | A derived table that resolves foreign keys into data |
 | Custom DDL | Triggers and views not tracked by Drizzle’s snapshot |
 | Idempotent | Safe to run repeatedly with the same result |
+| Owner | Nullable user foreign key injected into every table |
+| x-exposed | JSON Schema keyword that hides a table, property, or relation |
 | OPAQUE | Password-authenticated key exchange |
-| tweetnacl | Cryptographic primitives for signing and encryption |
+| Session | A 24-hour key row created by a successful login |
+| tweetnacl | Cryptographic primitives for Ed25519 keypairs |
 | JWK | JSON Web Key |
 | JSON:API | The HTTP API specification used by the server |
 | Vibe-coded | An application built primarily through AI-assisted iteration |
