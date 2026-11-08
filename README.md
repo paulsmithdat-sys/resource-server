@@ -826,7 +826,7 @@ Non-repudiation requires that:
 - signatures can be verified later;
 - key rotation is explicit and auditable.
 
-This is why the default `Key.user` FK uses `onDelete: "restrict"` rather than cascade. Soft-deletion and key revocation will be added with the auth layer.
+This is why the default `Key.user` FK uses `onDelete: "restrict"` rather than cascade. Soft-deletion and key revocation APIs are deferred to Phase 6.
 
 ### Authorization and sharing
 
@@ -1201,9 +1201,10 @@ bun test
 
 # run the API server
 bun run dev
-```
 
-Some scripts are planned for the phases above and will be added as those phases land.
+# run the API server once
+bun run start
+```
 
 ### Environment
 
