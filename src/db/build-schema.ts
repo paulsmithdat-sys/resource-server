@@ -55,6 +55,12 @@ const isStringEnum =
     && value.length > 0
     && value.every(x => typeof x === 'string')
 
+const validateExposure =
+  (title: string, value: unknown, label: string) => {
+    if (value !== undefined && typeof value !== 'boolean')
+      throw new Error(`${title}: ${label} x-exposed must be a boolean`)
+  }
+
 const applyDefault =
   (builder: any, value: unknown, property: JSONSchemaProperty) => {
     if (value === undefined) return builder
@@ -132,6 +138,10 @@ const validateRelation =
       throw new Error(`${sourceTitle}: relation "${label}" through must be a string`)
     if (relation.required !== undefined && typeof relation.required !== 'boolean')
       throw new Error(`${sourceTitle}: relation "${label}" required must be a boolean`)
+    if (relation['x-exposed'] !== undefined
+        && typeof relation['x-exposed'] !== 'boolean')
+      throw new Error(
+        `${sourceTitle}: relation "${label}" x-exposed must be a boolean`)
   }
 
 type TablePlan = Omit<TableDef, 'drizzleSchema'>
@@ -184,9 +194,13 @@ const buildTablePlan =
 
     const idEntry = findEntry('id')
     const updatedAtEntry = findEntry('updated_at')
+    const ownerEntry = findEntry('owner')
+
+    validateExposure(schema.title, schema['x-exposed'], 'table')
 
     if (!idEntry) injected.add('id')
     if (!updatedAtEntry) injected.add('updated_at')
+    if (!ownerEntry) injected.add('owner')
 
     const orderedEntries: [string, JSONSchemaProperty][] = []
     if (idEntry)
@@ -198,15 +212,28 @@ const buildTablePlan =
       orderedEntries.push(updatedAtEntry)
     else
       orderedEntries.push(['updated_at', { type: 'string', format: 'date-time' }])
+    if (ownerEntry)
+      orderedEntries.push(ownerEntry)
+    else
+      orderedEntries.push(
+        [ 'owner'
+        , { type: 'string'
+          , format: 'uuid'
+          , description: 'Owner user id'
+          }
+        ])
 
     for (const entry of declared)
-      if (entry[0] !== idEntry?.[0] && entry[0] !== updatedAtEntry?.[0])
+      if (entry[0] !== idEntry?.[0]
+          && entry[0] !== updatedAtEntry?.[0]
+          && entry[0] !== ownerEntry?.[0])
         orderedEntries.push(entry)
 
     const requiredNames = new Set((schema.required ?? []).map(snakeCase))
     const columns: ColumnDef[] =
       orderedEntries.map(([key, property]) => {
         const columnName = snakeCase(key)
+        validateExposure(schema.title, property['x-exposed'], `property "${key}"`)
         const isRequired =
           requiredNames.has(columnName)
           || columnName === 'id'
@@ -218,6 +245,7 @@ const buildTablePlan =
           , drizzle: buildColumn(key, property, isRequired)
           , required: isRequired
           , injected: injected.has(columnName)
+          , exposed: property['x-exposed'] !== false
           })
       })
 
@@ -259,7 +287,7 @@ const buildTablePlan =
       buildUniqueConstraints(schema, columnNames)
 
     const indexes =
-      [...new Set(foreignKeys.flatMap(x => x.columns))]
+      [...new Set([...foreignKeys.flatMap(x => x.columns), 'owner'])]
 
     const tableName = snakeCase(schema.title)
 
@@ -273,6 +301,7 @@ const buildTablePlan =
           || (loaded.source !== DERIVED_SOURCE
               && loaded.importPath.startsWith(SYSTEM_SCHEMA_DIR))
       , derived: loaded.source === DERIVED_SOURCE
+      , exposed: schema['x-exposed'] !== false
       , relations
       , foreignKeys
       , uniqueConstraints
@@ -298,9 +327,7 @@ const sortPlansByDependencies =
         state.set(plan.tableName, 'visiting')
 
         for (const foreignKeyDef of plan.foreignKeys) {
-          if (foreignKeyDef.foreignTable === plan.tableName)
-            throw new Error(
-              `${plan.tableName}: self-referential foreign keys are not supported yet`)
+          if (foreignKeyDef.foreignTable === plan.tableName) continue
 
           const target = byName.get(foreignKeyDef.foreignTable)
           if (!target)
@@ -341,8 +368,12 @@ const createDrizzleTable =
       const extras: any[] = []
 
       for (const foreignKeyDef of plan.foreignKeys) {
-        const targetPlan = plansByName.get(foreignKeyDef.foreignTable)
-        const targetTable = tablesByName.get(foreignKeyDef.foreignTable)
+        const selfReference =
+          foreignKeyDef.foreignTable === plan.tableName
+        const targetPlan =
+          selfReference ? plan : plansByName.get(foreignKeyDef.foreignTable)
+        const targetTable =
+          selfReference ? self : tablesByName.get(foreignKeyDef.foreignTable)
         if (!targetPlan || !targetTable)
           throw new Error(
             `${plan.tableName}: foreign key target "${foreignKeyDef.foreignTable}" has not been built`)
@@ -387,6 +418,56 @@ export const buildSchema =
   (base: LoadedSchema[]): BuiltSchema => {
     const schemas = deriveSchemas(base)
     const plans = schemas.map(buildTablePlan)
+    const plansByName = new Map(plans.map(x => [x.tableName, x]))
+
+    for (const plan of plans) {
+      const owner = plan.columns.find(x => x.columnName === 'owner')
+      if (owner && owner.schema.format !== 'uuid')
+        throw new Error(`${plan.tableName}: owner must be a uuid column`)
+    }
+
+    if (plansByName.has('user')) {
+      for (const plan of plans) {
+        if (plan.foreignKeys.some(x => x.columns.includes('owner'))) continue
+        plan.foreignKeys.push(
+          { columns: ['owner']
+          , foreignTable: 'user'
+          , foreignColumns: ['id']
+          , onDelete: 'set null'
+          })
+        if (!plan.indexes.includes('owner')) plan.indexes.push('owner')
+      }
+    }
+
+    for (const plan of plans) {
+      for (const relation of Object.values(plan.relations)) {
+        const target = plansByName.get(relation.table)
+        relation.exposed =
+          plan.exposed
+          && relation['x-exposed'] !== false
+          && (target?.exposed ?? true)
+      }
+    }
+
+    for (const plan of plans) {
+      if (!plan.derived) continue
+
+      const endpointHidden =
+        plan.foreignKeys.some(
+          x => plansByName.get(x.foreignTable)?.exposed === false)
+      const relationHidden =
+        plans.some(
+          other => Object.values(other.relations)
+            .some(x => x.through === plan.tableName && x.exposed === false))
+
+      if (endpointHidden || relationHidden) plan.exposed = false
+    }
+
+    for (const plan of plans)
+      for (const relation of Object.values(plan.relations))
+        if (relation.through
+            && plansByName.get(relation.through)?.exposed === false)
+          relation.exposed = false
 
     const tables: Record<string, TableDef> = {}
     const tableNames = new Set<string>()
@@ -399,7 +480,6 @@ export const buildSchema =
       tableNames.add(plan.tableName)
     }
 
-    const plansByName = new Map(plans.map(x => [x.tableName, x]))
     const tablesByName = new Map<string, any>()
     const builtByName = new Map<string, TableDef>()
 

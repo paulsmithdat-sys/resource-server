@@ -4,6 +4,7 @@ import
   , diffCustomDdl
   , emptyCustomDdlState
   , hashDdl
+  , removedCustomDdl
   , sortHashes
   , stateFromEntries
   } from './custom-ddl.ts'
@@ -60,6 +61,34 @@ describe('custom DDL state', () => {
           : x)
     expect(diffCustomDdl(changed, state).map(x => x.key))
       .toEqual(['trigger:widget'])
+  })
+
+  test('turns removed entries into drop statements', () => {
+    const entries = buildCustomDdl(built)
+    const state =
+      { version: 1 as const
+      , hashes:
+          { ...stateFromEntries(entries).hashes
+          , 'view:key_view': hashDdl('CREATE VIEW `key_view` AS SELECT 1;')
+          , 'trigger:old_table': hashDdl('CREATE TRIGGER `old_table_updated`;')
+          }
+      }
+
+    const removed = removedCustomDdl(entries, state)
+    expect(removed).toEqual(
+      [ { key: 'trigger:old_table'
+        , kind: 'trigger'
+        , name: 'old_table_updated'
+        , sql: ''
+        , dropSql: 'DROP TRIGGER IF EXISTS `old_table_updated`;'
+        }
+      , { key: 'view:key_view'
+        , kind: 'view'
+        , name: 'key_view'
+        , sql: ''
+        , dropSql: 'DROP VIEW IF EXISTS `key_view`;'
+        }
+      ])
   })
 
   test('sorts hashes for stable file output', () => {

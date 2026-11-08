@@ -76,3 +76,33 @@ export const stateFromEntries =
 export const diffCustomDdl =
   (entries: CustomDdlEntry[], state: CustomDdlState) =>
     entries.filter(x => state.hashes[x.key] !== hashDdl(x.sql))
+
+export const removedCustomDdl =
+  (entries: CustomDdlEntry[], state: CustomDdlState): CustomDdlEntry[] => {
+    const desiredKeys = new Set(entries.map(x => x.key))
+
+    return Object.keys(state.hashes)
+      .filter(key => !desiredKeys.has(key))
+      .sort()
+      .map(key => {
+        const separator = key.indexOf(':')
+        const kind = key.slice(0, separator)
+        const keyName = key.slice(separator + 1)
+
+        if (separator < 0 || (kind !== 'trigger' && kind !== 'view'))
+          throw new Error(`Unknown custom DDL state key: ${key}`)
+
+        const name = kind === 'trigger' ? `${keyName}_updated` : keyName
+
+        return (
+          { key
+          , kind
+          , name
+          , sql: ''
+          , dropSql:
+              kind === 'trigger'
+                ? `DROP TRIGGER IF EXISTS \`${name}\`;`
+                : `DROP VIEW IF EXISTS \`${name}\`;`
+          })
+      })
+  }

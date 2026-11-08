@@ -267,6 +267,7 @@ const writableAttributes =
 const assertRequiredAttributes =
   (resource: ResourceMeta, provided: Set<string>) => {
     for (const column of resource.definition.columns) {
+      if (!column.exposed) continue
       if (!column.required
           || column.injected
           || column.columnName === 'updated_at'
@@ -279,6 +280,23 @@ const assertRequiredAttributes =
           `Attribute "${column.columnName}" is required`
           , `data.attributes.${column.columnName}`)
     }
+  }
+
+const assertOwner =
+  async (db: RowDatabase, value: unknown) => {
+    if (value === undefined || value === null) return
+
+    if (typeof value !== 'string' || !UUID_PATTERN.test(value))
+      throw badRequest('Attribute "owner" must be a canonical UUID', 'data.attributes.owner')
+
+    const owner = uuidToBuffer(value)
+    const row =
+      await db.get(`SELECT 1 AS found FROM ${quoteIdentifier('user')}`
+        + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`, [owner])
+    if (!row)
+      throw badRequest(
+        `Owner "${value}" does not reference an existing user`
+        , 'data.attributes.owner')
   }
 
 const foreignKeyColumn =
@@ -401,6 +419,7 @@ export const createResource =
     }
 
     for (const [name, value] of Object.entries(document.attributes)) {
+      if (name === 'owner') await assertOwner(context.db, value)
       columns.push(name)
       values.push(
         attributeValue(
@@ -410,7 +429,7 @@ export const createResource =
     }
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'one') continue
+      if (relation.cardinality !== 'one' || relation.exposed === false) continue
 
       const value = document.relationships.get(label)
       if (value === undefined) {
@@ -447,7 +466,7 @@ export const createResource =
     const id = canonicalUuid(inserted?.id)
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'many') continue
+      if (relation.cardinality !== 'many' || relation.exposed === false) continue
 
       const targets = document.relationships.get(label)
       if (targets === undefined) continue
@@ -478,6 +497,8 @@ export const updateResource =
       for (const name of writableAttributes(resource)) {
         const column = columnFor(resource, name)
         if (Object.hasOwn(document.attributes, name)) {
+          if (name === 'owner')
+            await assertOwner(context.db, document.attributes[name])
           assignments.set(
             name
             , attributeValue(
@@ -503,17 +524,19 @@ export const updateResource =
       }
     }
     else {
-      for (const [name, value] of Object.entries(document.attributes))
+      for (const [name, value] of Object.entries(document.attributes)) {
+        if (name === 'owner') await assertOwner(context.db, value)
         assignments.set(
           name
           , attributeValue(
               columnFor(resource, name)
               , value
               , `data.attributes.${name}`))
+      }
     }
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'one') continue
+      if (relation.cardinality !== 'one' || relation.exposed === false) continue
 
       const value = document.relationships.get(label)
       if (value === undefined) {
@@ -556,7 +579,7 @@ export const updateResource =
     }
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'many') continue
+      if (relation.cardinality !== 'many' || relation.exposed === false) continue
 
       let targets = document.relationships.get(label)
       if (targets === undefined) {

@@ -73,6 +73,10 @@ const validateRelation =
       throw new Error(`${sourceTitle}: relation "${label}" through must be a string`)
     if (relation.required !== undefined && typeof relation.required !== 'boolean')
       throw new Error(`${sourceTitle}: relation "${label}" required must be a boolean`)
+    if (relation['x-exposed'] !== undefined
+        && typeof relation['x-exposed'] !== 'boolean')
+      throw new Error(
+        `${sourceTitle}: relation "${label}" x-exposed must be a boolean`)
   }
 
 const hasInverseOne =

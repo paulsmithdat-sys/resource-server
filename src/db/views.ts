@@ -17,16 +17,18 @@ const reference =
 
 const uuidString =
   (value: string) =>
-    `(lower(hex(substr(${value}, 1, 4)))`
+    `(CASE WHEN ${value} IS NULL THEN NULL ELSE (`
+    + `lower(hex(substr(${value}, 1, 4)))`
     + ` || '-' || lower(hex(substr(${value}, 5, 2)))`
     + ` || '-' || lower(hex(substr(${value}, 7, 2)))`
     + ` || '-' || lower(hex(substr(${value}, 9, 2)))`
-    + ` || '-' || lower(hex(substr(${value}, 11, 6))))`
+    + ` || '-' || lower(hex(substr(${value}, 11, 6)))) END)`
 
 const jsonValue =
   (column: ColumnDef, value: string) => {
     if (column.schema.format === 'uuid') return uuidString(value)
-    if (column.schema.format === 'byte') return `lower(hex(${value}))`
+    if (column.schema.format === 'byte')
+      return `(CASE WHEN ${value} IS NULL THEN NULL ELSE lower(hex(${value})) END)`
     if (column.schema.type === 'boolean')
       return `(CASE WHEN ${value} IS NULL THEN NULL`
         + ` WHEN ${value} THEN json('true') ELSE json('false') END)`
@@ -37,11 +39,13 @@ const jsonValue =
 
 const jsonObject =
   (table: TableDef, alias: string) => {
-    const args = table.columns.flatMap(
-      column =>
-        [ literal(column.columnName)
-        , jsonValue(column, reference(alias, column.columnName))
-        ])
+    const args = table.columns
+      .filter(column => column.exposed)
+      .flatMap(
+        column =>
+          [ literal(column.columnName)
+          , jsonValue(column, reference(alias, column.columnName))
+          ])
     return `json_object(${args.join(', ')})`
   }
 
@@ -120,6 +124,7 @@ const buildView =
   (table: TableDef, tablesByName: Map<string, TableDef>): ViewDef => {
     const relationEntries =
       Object.entries(table.relations)
+        .filter(([, relation]) => relation.exposed !== false)
         .sort(([a], [b]) => a.localeCompare(b))
 
     const columnNames = new Set(table.columns.map(x => x.columnName))
@@ -129,9 +134,11 @@ const buildView =
           `${table.tableName}: relation "${label}" conflicts with a column`)
 
     const selectEntries = [
-      ...table.columns.map(
-        column =>
-          `${viewValue(column, 't')} AS ${quote(column.columnName)}`),
+      ...table.columns
+        .filter(column => column.exposed)
+        .map(
+          column =>
+            `${viewValue(column, 't')} AS ${quote(column.columnName)}`),
       ...relationEntries.map(
         ([label, relation]) =>
           ( relation.cardinality === 'one'
@@ -159,6 +166,7 @@ export const buildViews =
     const views: Record<string, ViewDef> = {}
 
     for (const table of built.orderedTables) {
+      if (!table.exposed) continue
       const view = buildView(table, tablesByName)
       views[view.name] = view
     }

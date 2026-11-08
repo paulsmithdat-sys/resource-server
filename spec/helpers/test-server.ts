@@ -12,7 +12,7 @@ export const JSON_API = 'application/vnd.api+json'
 
 const drizzleRoot = join(import.meta.dir, '../../.drizzle')
 
-const latestMigration =
+const migrationSql =
   async () => {
     const entries = await readdir(drizzleRoot, { withFileTypes: true })
     const directories =
@@ -21,20 +21,25 @@ const latestMigration =
         .map(x => x.name)
         .sort()
 
-    const latest = directories.at(-1)
-    if (!latest)
+    if (directories.length === 0)
       throw new Error(`No migrations found in ${drizzleRoot}`)
 
-    return await readFile(join(drizzleRoot, latest, 'migration.sql'), 'utf8')
+    const statements: string[] = []
+    for (const directory of directories) {
+      const sql =
+        await readFile(join(drizzleRoot, directory, 'migration.sql'), 'utf8')
+      for (const statement of sql.split('--> statement-breakpoint')) {
+        const trimmed = statement.trim()
+        if (trimmed) statements.push(trimmed)
+      }
+    }
+    return statements
   }
 
 export const applyMigrations =
   async (db: { exec: (sql: string) => Promise<void> }) => {
-    const sql = await latestMigration()
-    for (const statement of sql.split('--> statement-breakpoint')) {
-      const trimmed = statement.trim()
-      if (trimmed) await db.exec(trimmed)
-    }
+    for (const statement of await migrationSql())
+      await db.exec(statement)
   }
 
 export const createTestServer =
@@ -43,6 +48,7 @@ export const createTestServer =
       await connect(
         ':memory:'
         , { experimental: ['views', 'custom_types', 'encryption', 'vacuum'] })
+    await connection.exec('PRAGMA foreign_keys = ON')
     await applyMigrations(connection)
 
     const db = createRowDatabase(connection)

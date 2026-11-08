@@ -21,9 +21,11 @@ export const appendCustomDdl =
 
     const statements =
       entries.flatMap(entry =>
-        [ ensureSemicolon(entry.dropSql)
-        , ensureSemicolon(entry.sql)
-        ])
+        entry.sql.trim()
+          ? [ ensureSemicolon(entry.dropSql)
+            , ensureSemicolon(entry.sql)
+            ]
+          : [ ensureSemicolon(entry.dropSql) ])
 
     return (
       sql.trimEnd()

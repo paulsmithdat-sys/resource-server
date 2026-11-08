@@ -6,6 +6,7 @@ import
   { buildCustomDdl
   , diffCustomDdl
   , readCustomDdlState
+  , removedCustomDdl
   , stateFromEntries
   , writeCustomDdlState
   } from './custom-ddl.ts'
@@ -58,10 +59,6 @@ const runDrizzleGenerate =
     execFileSync('bunx', args, { cwd: projectRoot, stdio: 'inherit' })
   }
 
-const hasRemovedKeys =
-  (desiredKeys: string[], previous: Record<string, string>) =>
-    Object.keys(previous).some(key => !desiredKeys.includes(key))
-
 const main =
   async () => {
     const loaded = await loadSchemas()
@@ -80,10 +77,11 @@ const main =
 
     const desired = buildCustomDdl(built)
     const previous = await readCustomDdlState(statePath)
-    const changed = diffCustomDdl(desired, previous)
-    const stateChanged =
-      changed.length > 0
-      || hasRemovedKeys(desired.map(x => x.key), previous.hashes)
+    const changed =
+      [ ...diffCustomDdl(desired, previous)
+      , ...removedCustomDdl(desired, previous)
+      ]
+    const stateChanged = changed.length > 0
 
     let targetDir = newDirs.at(-1)
 

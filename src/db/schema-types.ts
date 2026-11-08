@@ -9,6 +9,8 @@ export type RelationConfig =
   , required?: boolean
   , onDelete?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   , onUpdate?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
+  , 'x-exposed'?: boolean
+  , exposed?: boolean
   }
 
 export type JSONSchemaProperty =
@@ -24,6 +26,7 @@ export type JSONSchemaProperty =
   , required?: string[]
   , 'x-unique'?: boolean
   , 'x-primary'?: boolean
+  , 'x-exposed'?: boolean
   , [key: string]: unknown
   }
 
@@ -37,6 +40,7 @@ export type JSONSchema =
   , required?: string[]
   , default?: unknown
   , 'x-system'?: boolean
+  , 'x-exposed'?: boolean
   , 'x-relations'?: Record<string, RelationConfig>
   , 'x-unique-constraints'?: string[][]
   , [key: string]: unknown
@@ -56,6 +60,7 @@ export type ColumnDef =
   , drizzle: any
   , required: boolean
   , injected: boolean
+  , exposed: boolean
   }
 
 export type ForeignKeyDef =
@@ -74,6 +79,7 @@ export type TableDef =
   , columns: ColumnDef[]
   , isSystem: boolean
   , derived: boolean
+  , exposed: boolean
   , relations: Record<string, RelationConfig>
   , foreignKeys: ForeignKeyDef[]
   , uniqueConstraints: string[][]

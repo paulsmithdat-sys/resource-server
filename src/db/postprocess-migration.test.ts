@@ -45,6 +45,20 @@ describe('appendCustomDdl', () => {
     expect(result.trimEnd().endsWith('END;')).toBe(true)
   })
 
+  test('appends a drop without a create for removed DDL', () => {
+    const removed: CustomDdlEntry =
+      { key: 'view:key_view'
+      , kind: 'view'
+      , name: 'key_view'
+      , sql: ''
+      , dropSql: 'DROP VIEW IF EXISTS `key_view`;'
+      }
+
+    const result = appendCustomDdl('CREATE TABLE `widget` (`id` blob);\n', [removed])
+    expect(result).toContain('DROP VIEW IF EXISTS `key_view`;')
+    expect(result).not.toContain('CREATE VIEW')
+  })
+
   test('leaves the migration unchanged when there is no custom DDL', () => {
     const input = 'CREATE TABLE `widget` (`id` blob PRIMARY KEY);\n'
     expect(appendCustomDdl(input, [])).toBe(input)

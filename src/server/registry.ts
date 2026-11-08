@@ -26,24 +26,55 @@ export type Registry =
 export const buildRegistry =
   (built: BuiltSchema): Registry => {
     const resources = new Map<string, ResourceMeta>()
+    const exposedTables =
+      new Set(
+        built.orderedTables.filter(x => x.exposed).map(x => x.tableName))
 
     for (const table of built.orderedTables) {
-      const relationLabels = new Set(Object.keys(table.relations))
-      const foreignKeyColumns =
-        [...new Set(table.foreignKeys.flatMap(x => x.columns))]
-      const foreignKeySet = new Set(foreignKeyColumns)
+      if (!table.exposed) continue
 
-      const columns = table.columns.map(x => x.columnName)
+      const relationEntries =
+        Object.entries(table.relations)
+          .filter(
+            ([, relation]) =>
+              relation.exposed !== false
+              && exposedTables.has(relation.table))
+      const relationLabels =
+        new Set(relationEntries.map(([label]) => label))
+      const relationshipForeignKeys =
+        new Set(
+          relationEntries.flatMap(
+            ([, relation]) =>
+              relation.cardinality === 'one' && relation.foreignKey
+                ? [relation.foreignKey]
+                : []))
+      const hiddenRelationForeignKeys =
+        new Set(
+          Object.values(table.relations).flatMap(
+            relation =>
+              relation.cardinality === 'one'
+              && relation.foreignKey
+              && relation.exposed === false
+                ? [relation.foreignKey]
+                : []))
+
+      const columns =
+        table.columns
+          .filter(
+            column =>
+              column.exposed
+              && !hiddenRelationForeignKeys.has(column.columnName))
+          .map(column => column.columnName)
       const attributes =
         columns.filter(
           x =>
             x !== 'id'
             && !relationLabels.has(x)
-            && !foreignKeySet.has(x))
+            && !relationshipForeignKeys.has(x))
 
       const relationships: Record<string, RelationshipMeta> =
         Object.fromEntries(
-          Object.entries(table.relations).map(([label, relation]) => (
+          relationEntries.map(([label, relation]) => (
             [ label
             , { label
               , cardinality: relation.cardinality
@@ -60,7 +91,8 @@ export const buildRegistry =
           , definition: table
           , columns
           , attributes
-          , foreignKeyColumns
+          , foreignKeyColumns:
+              [...new Set(table.foreignKeys.flatMap(x => x.columns))]
           , relationships
           }
         )

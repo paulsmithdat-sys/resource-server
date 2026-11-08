@@ -51,7 +51,8 @@ describe('buildSchema default columns', () => {
       { title: 'Widget', type: 'object', properties: {} })
 
     expect(config.name).toBe('widget')
-    expect(config.columns.map(x => x.name)).toEqual(['id', 'updated_at'])
+    expect(config.columns.map(x => x.name))
+      .toEqual(['id', 'updated_at', 'owner'])
 
     const [id, updatedAt] = config.columns
     expect(id!.getSQLType()).toBe('blob')
@@ -74,10 +75,11 @@ describe('buildSchema default columns', () => {
         }
       })
 
-    expect(config.columns.map(x => x.name)).toEqual(['id', 'updated_at'])
+    expect(config.columns.map(x => x.name))
+      .toEqual(['id', 'updated_at', 'owner'])
   })
 
-  test('places id and updated_at first and snake_cases every column', () => {
+  test('places id, updated_at, and owner first and snake_cases every column', () => {
     const config = columnConfig(
       { title: 'Widget'
       , type: 'object'
@@ -88,7 +90,7 @@ describe('buildSchema default columns', () => {
       })
 
     expect(config.columns.map(x => x.name))
-      .toEqual(['id', 'updated_at', 'display_name', 'created_at'])
+      .toEqual(['id', 'updated_at', 'owner', 'display_name', 'created_at'])
   })
 })
 
@@ -184,23 +186,24 @@ describe('buildSchema relations', () => {
           , type: 'object'
           , properties: {}
           , 'x-relations':
-            { owner:
+            { member:
               { table: 'user'
               , column: 'id'
               , cardinality: 'one'
-              , foreignKey: 'owner_id'
+              , foreignKey: 'member_id'
               , onDelete: 'restrict'
               }
             }
           })
       ])
 
-    expect(built.tables.Widget!.relations.owner).toEqual(
+    expect(built.tables.Widget!.relations.member).toEqual(
       { table: 'user'
       , column: 'id'
       , cardinality: 'one'
-      , foreignKey: 'owner_id'
+      , foreignKey: 'member_id'
       , onDelete: 'restrict'
+      , exposed: true
       })
   })
 
@@ -212,7 +215,7 @@ describe('buildSchema relations', () => {
           , type: 'object'
           , properties: {}
           , 'x-relations':
-            { owner:
+            { member:
               { table: 'user'
               , column: 'id'
               , cardinality: 'one'
@@ -224,19 +227,24 @@ describe('buildSchema relations', () => {
 
     const widget = built.tables.Widget!
     expect(widget.columns.map(x => x.columnName))
-      .toEqual(['id', 'updated_at', 'user_id'])
+      .toEqual(['id', 'updated_at', 'owner', 'user_id'])
     expect(widget.foreignKeys).toEqual(
       [ { columns: ['user_id']
         , foreignTable: 'user'
         , foreignColumns: ['id']
         , onDelete: 'restrict'
         }
+      , { columns: ['owner']
+        , foreignTable: 'user'
+        , foreignColumns: ['id']
+        , onDelete: 'set null'
+        }
       ])
 
     const config = getTableConfig(widget.drizzleSchema)
-    expect(config.foreignKeys).toHaveLength(1)
+    expect(config.foreignKeys).toHaveLength(2)
     expect(config.indexes.map(x => (x.config.columns[0] as any).name))
-      .toEqual(['user_id'])
+      .toEqual(['user_id', 'owner'])
   })
 
   test('makes required one relation columns not null', () => {
@@ -247,7 +255,7 @@ describe('buildSchema relations', () => {
           , type: 'object'
           , properties: {}
           , 'x-relations':
-            { owner:
+            { member:
               { table: 'user'
               , column: 'id'
               , cardinality: 'one'
@@ -339,7 +347,7 @@ describe('buildSchema derived relations', () => {
     expect(join.tableName).toBe('article_tag')
     expect(join.derived).toBe(true)
     expect(join.columns.map(x => x.columnName))
-      .toEqual(['id', 'updated_at', 'article_id', 'tag_id'])
+      .toEqual(['id', 'updated_at', 'owner', 'article_id', 'tag_id'])
 
     const config = getTableConfig(join.drizzleSchema)
     const articleId = config.columns.find(x => x.name === 'article_id')!
@@ -416,6 +424,11 @@ describe('buildSchema derived relations', () => {
       [ { columns: ['user_id']
         , foreignTable: 'user'
         , foreignColumns: ['id']
+        }
+      , { columns: ['owner']
+        , foreignTable: 'user'
+        , foreignColumns: ['id']
+        , onDelete: 'set null'
         }
       ])
   })
@@ -500,5 +513,118 @@ describe('buildSchema output', () => {
     expect(trigger).toContain('AFTER UPDATE ON `blog_post`')
     expect(trigger).toContain('WHERE id = OLD.id')
     expect(trigger.endsWith(';')).toBe(true)
+  })
+})
+
+describe('buildSchema x-exposed', () => {
+  test('exposes tables, columns, and relations by default', () => {
+    const built = buildSchema(
+      [ loadedSchema(userSchema)
+      , loadedSchema(
+          { title: 'Widget'
+          , type: 'object'
+          , properties:
+            { name: { type: 'string' }
+            , secret: { type: 'string', 'x-exposed': false }
+            }
+          , 'x-relations':
+            { member: { table: 'user', column: 'id', cardinality: 'one' } }
+          })
+      ])
+
+    const widget = built.tables.Widget!
+    expect(widget.exposed).toBe(true)
+    expect(widget.columns.find(x => x.columnName === 'name')?.exposed)
+      .toBe(true)
+    expect(widget.columns.find(x => x.columnName === 'secret')?.exposed)
+      .toBe(false)
+    expect(widget.relations.member?.exposed).toBe(true)
+  })
+
+  test('hides tables and relations to hidden tables', () => {
+    const built = buildSchema(
+      [ loadedSchema(userSchema)
+      , loadedSchema(
+          { title: 'Secret'
+          , type: 'object'
+          , 'x-exposed': false
+          , properties: { value: { type: 'string' } }
+          })
+      , loadedSchema(
+          { title: 'Widget'
+          , type: 'object'
+          , properties: {}
+          , 'x-relations':
+            { member: { table: 'user', column: 'id', cardinality: 'one' }
+            , secret: { table: 'secret', column: 'id', cardinality: 'one' }
+            , hidden:
+                { table: 'user'
+                , column: 'id'
+                , cardinality: 'one'
+                , 'x-exposed': false
+                }
+            }
+          })
+      ])
+
+    expect(built.tables.Secret!.exposed).toBe(false)
+    expect(built.tables.Widget!.relations.member?.exposed).toBe(true)
+    expect(built.tables.Widget!.relations.secret?.exposed).toBe(false)
+    expect(built.tables.Widget!.relations.hidden?.exposed).toBe(false)
+  })
+
+  test('hides derived join tables with hidden endpoints or relations', () => {
+    const built = buildSchema(
+      [ loadedSchema(
+          { title: 'Article'
+          , type: 'object'
+          , properties: { heading: { type: 'string' } }
+          , 'x-relations':
+            { tag: { table: 'tag', column: 'id', cardinality: 'many' } }
+          })
+      , loadedSchema(
+          { title: 'Tag'
+          , type: 'object'
+          , 'x-exposed': false
+          , properties: { name: { type: 'string' } }
+          })
+      ])
+
+    const join = built.tables.ArticleTag!
+    expect(join.exposed).toBe(false)
+    expect(built.tables.Article!.relations.tag?.exposed).toBe(false)
+  })
+
+  test('rejects non-boolean x-exposed values', () => {
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , 'x-exposed': 'yes' as unknown as boolean
+      , properties: {}
+      })).toThrow('x-exposed must be a boolean')
+
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { name: { type: 'string', 'x-exposed': 1 as unknown as boolean } }
+      })).toThrow('property "name" x-exposed must be a boolean')
+
+    expect(() => buildSchema(
+      [ loadedSchema(userSchema)
+      , loadedSchema(
+          { title: 'Widget'
+          , type: 'object'
+          , properties: {}
+          , 'x-relations':
+            { member:
+              { table: 'user'
+              , column: 'id'
+              , cardinality: 'one'
+              , 'x-exposed': 'no' as unknown as boolean
+              }
+            }
+          })
+      ])).toThrow('relation "member" x-exposed must be a boolean')
   })
 })
