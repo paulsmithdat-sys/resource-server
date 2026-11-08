@@ -69,6 +69,10 @@ const createDatabase =
           if (sql.includes('COUNT(')) return { count: rows.length }
           return rows.find(row => row.id === params[0])
         }
+      , run: async () => (
+          { changes: 0
+          , lastInsertRowid: 0
+          })
       }
 
     return { db, calls }

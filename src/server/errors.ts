@@ -23,3 +23,7 @@ export const badRequest =
 export const notFound =
   (detail: string) =>
     new ApiError(404, 'Not Found', detail)
+
+export const conflict =
+  (detail: string) =>
+    new ApiError(409, 'Conflict', detail)

@@ -1,4 +1,4 @@
-import type { BuiltSchema } from '../db/schema-types.ts'
+import type { BuiltSchema, TableDef } from '../db/schema-types.ts'
 
 export type RelationshipMeta =
   { label: string
@@ -11,6 +11,7 @@ export type ResourceMeta =
   { type: string
   , table: string
   , view: string
+  , definition: TableDef
   , columns: string[]
   , attributes: string[]
   , foreignKeyColumns: string[]
@@ -56,6 +57,7 @@ export const buildRegistry =
         , { type: table.tableName
           , table: table.tableName
           , view: `${table.tableName}_view`
+          , definition: table
           , columns
           , attributes
           , foreignKeyColumns
