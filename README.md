@@ -541,9 +541,15 @@ The HTTP layer is JSON:API 1.0 over Hono. It reads the generated `<table>_view` 
 ### Endpoints
 
 ```text
-GET /             resource catalog
-GET /:type        collection
-GET /:type/:id    single resource
+GET, HEAD /              resource catalog
+GET, HEAD /:type         collection
+POST /:type              create a resource
+GET, HEAD /:type/:id     single resource
+PUT /:type/:id           replace a resource
+PATCH /:type/:id         update a resource
+DELETE /:type/:id        delete a resource
+OPTIONS /:type           advertised collection methods
+OPTIONS /:type/:id       advertised single-resource methods
 ```
 
 Resource types are the snake_case table names:
@@ -630,6 +636,41 @@ A single-resource response has an object in `data` and no pagination `meta`.
 
 Attributes contain every non-relational column except `id`, including `updated_at`. Foreign-key columns and relation labels are omitted. Relationships contain resource identifier objects only; relationship links are not generated yet. A `one` relationship serializes as one identifier or `null`, and a `many` relationship serializes as an array.
 
+### Write operations
+
+Write bodies are JSON:API resource objects:
+
+```json
+{
+  "data": {
+    "type": "article",
+    "attributes": {
+      "heading": "Hello",
+      "subheading": "World",
+      "content": "..."
+    },
+    "relationships": {
+      "tag": {
+        "data": [
+          { "type": "tag", "id": "0190c9d2-8d5b-7c4f-8b22-3a8b9a0c2d33" }
+        ]
+      }
+    }
+  }
+}
+```
+
+- `POST /:type` creates a resource and returns `201` with a `Location` header. A client may supply a canonical UUID `data.id`; otherwise the database generates one.
+- `PUT /:type/:id` replaces a resource. Omitted optional attributes become `null`, and omitted relationships are cleared.
+- `PATCH /:type/:id` updates only the supplied attributes and relationships.
+- `DELETE /:type/:id` removes the resource and any derived join-table rows that reference it, then returns `204`.
+- `HEAD` returns the same status and headers as `GET` without a body.
+- `OPTIONS` returns `204` with an `Allow` header listing the supported methods.
+
+Writes validate the resource type, attribute names, types, enums, string lengths, required fields, and relationship identifier types. A `one` relationship writes its foreign-key column. A `many` relationship through a join table replaces that table's rows for the resource. Constraint violations return `409 Conflict`.
+
+Mock documents for the user-defined schemas live in `src/seed/`. Tags are listed before articles so articles can reference existing tag IDs.
+
 ### IDs
 
 The database stores UUIDv7 values as blobs. Views cast them to canonical UUID strings, and the API uses those strings as JSON:API `id` values and as lookup values in `GET /:type/:id`.
@@ -651,7 +692,7 @@ Errors use the JSON:API error format:
 }
 ```
 
-Invalid queries and unsupported resource operations return `400`, unknown resource types, IDs, and routes return `404`, and unexpected failures return `500`. Every response, including errors, uses the content type `application/vnd.api+json`.
+Invalid queries and malformed write documents return `400`, unknown resource types, IDs, and routes return `404`, constraint violations return `409`, and unexpected failures return `500`. Every response, including errors, uses the content type `application/vnd.api+json`.
 
 ---
 
@@ -875,13 +916,17 @@ Deliverables:
 - resource catalog at `GET /`;
 - collection and single-resource endpoints backed by `<table>_view`;
 - pagination, sorting, filtering, sparse fieldsets, and direct `include`;
-- JSON:API error responses;
+- write endpoints for create, replace, update, and delete;
+- `HEAD` and `OPTIONS` support with advertised methods;
+- JSON:API error responses and write validation;
 - canonical string UUIDs in documents and lookups;
-- contract tests with an in-memory row database.
+- seed documents for user-defined schemas;
+- contract tests with an in-memory row database and end-to-end specs against migrated in-memory databases.
 
 Exit criteria:
 
 - `GET /article` and `GET /article/:id` return valid JSON:API documents;
+- `POST`, `PUT`, `PATCH`, and `DELETE` mutate generated tables and join tables correctly;
 - `include` resolves direct relationships from embedded view JSON;
 - invalid requests return JSON:API errors with parameter sources;
 - content type is `application/vnd.api+json`;
@@ -993,17 +1038,32 @@ src/
     generate-migration.ts
     reset.ts
     *.test.ts
+  seed/
+    article.ts
+    tag.ts
+    index.ts
   server/
     app.ts
     registry.ts
     query.ts
     serialize.ts
+    mutations.ts
     errors.ts
     database.ts
     index.ts
     app.test.ts
   helper/
     loadDb.ts
+spec/
+  helpers/
+    test-server.ts
+  get.test.ts
+  post.test.ts
+  put.test.ts
+  patch.test.ts
+  delete.test.ts
+  head.test.ts
+  options.test.ts
 .drizzle/                 generated migrations and custom-ddl-state.json
 .drizzleExports/          generated Drizzle schema
 ```
@@ -1056,6 +1116,7 @@ The test suite should cover:
 - trigger and view replacement;
 - FK enforcement;
 - JSON:API documents and errors;
+- `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` against seeded documents;
 - OPAQUE and tweetnacl flows when implemented.
 
 Idempotency tests are mandatory: generation and migration must be safe to re-run.
@@ -1100,8 +1161,12 @@ Phases 0–4 are complete:
 - builder, derivation, view, post-processing, export, and idempotency tests pass;
 - a Hono application serves the generated views as JSON:API collections and single resources;
 - the API supports pagination, sorting, equality filters, sparse fieldsets, and direct `include`;
+- create, replace, update, and delete endpoints write to generated tables and derived join tables;
+- writes validate attributes, required fields, relationship identifiers, and constraint failures;
+- `HEAD` and `OPTIONS` are supported with advertised methods;
+- mock documents for user-defined schemas live in `src/seed/`;
 - invalid requests return JSON:API errors, and all responses use `application/vnd.api+json`;
-- API contract tests run against an in-memory row database and the real development database has been checked manually.
+- API contract tests run against an in-memory row database, and `spec/` exercises every HTTP method against in-memory Turso databases created from the migrations.
 
 The next milestone is Phase 5: OPAQUE registration/login and session signing keys.
 
