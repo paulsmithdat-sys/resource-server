@@ -24,6 +24,10 @@ export const notFound =
   (detail: string) =>
     new ApiError(404, 'Not Found', detail)
 
+export const unauthorized =
+  (detail: string) =>
+    new ApiError(401, 'Unauthorized', detail)
+
 export const conflict =
   (detail: string) =>
     new ApiError(409, 'Conflict', detail)

@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import * as opaque from '@serenity-kit/opaque'
 import { connect } from '@tursodatabase/database'
 import type { Hono } from 'hono'
 import { buildSchema } from '../../src/db/build-schema.ts'
@@ -9,6 +10,11 @@ import { createRowDatabase } from '../../src/server/database.ts'
 import { seedDocuments } from '../../src/seed/index.ts'
 
 export const JSON_API = 'application/vnd.api+json'
+
+await opaque.ready
+
+export const opaqueServerSetup =
+  process.env.OPAQUE_SERVER_SETUP ?? opaque.server.createSetup()
 
 const drizzleRoot = join(import.meta.dir, '../../.drizzle')
 
@@ -53,7 +59,8 @@ export const createTestServer =
 
     const db = createRowDatabase(connection)
     const built = buildSchema(await loadSchemas())
-    const app = createApp({ built, db })
+    const app =
+      createApp({ built, db, opaqueServerSetup })
 
     return { app, db, built, connection }
   }

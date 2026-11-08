@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { ErrorSerializer, JapiError } from 'ts-japi'
+import { createAuthService } from '../auth/service.ts'
+import { registerAuthRoutes } from '../auth/routes.ts'
 import type { BuiltSchema } from '../db/schema-types.ts'
 import type { RowDatabase } from './database.ts'
 import { ApiError, badRequest, notFound } from './errors.ts'
@@ -54,13 +56,19 @@ const whereClause =
 export type AppOptions =
   { built: BuiltSchema
   , db: RowDatabase
+  , opaqueServerSetup?: string
   }
 
 export const createApp =
-  ({ built, db }: AppOptions) => {
+  ({ built, db, opaqueServerSetup }: AppOptions) => {
     const registry = buildRegistry(built)
     const context: MutationContext = { built, db }
     const app = new Hono()
+
+    if (opaqueServerSetup)
+      registerAuthRoutes(
+        app
+        , createAuthService({ db, serverSetup: opaqueServerSetup }))
 
     const resourceFor =
       (type: string) => {
