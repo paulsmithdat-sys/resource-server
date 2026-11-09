@@ -5,16 +5,17 @@ import type
   , TableDef
   } from '../db/schema-types.ts'
 import type { Row, RowDatabase } from './database.ts'
-import { badRequest, conflict, notFound } from './errors.ts'
+import { badRequest, conflict, forbidden, notFound } from './errors.ts'
 import { isObject } from './guard.ts'
 import { ajv } from './ajv.ts'
 import type { ResourceMeta, RelationshipMeta } from './registry.ts'
 import { quoteIdentifier } from './query.ts'
-import { UUID_PATTERN, canonicalUuid, uuidToBuffer as uuidToBufferShared } from './uuid.ts'
+import { UUID_PATTERN, canonicalUuid, uuidToBuffer } from './uuid.ts'
 
 export type MutationContext =
   { built: BuiltSchema
   , db: RowDatabase
+  , userId?: string
   }
 
 export type WriteDocument =
@@ -70,7 +71,7 @@ const coerceValue =
     const property = column.schema
 
     if (property.format === 'uuid')
-      return uuidToBufferShared(value as string)
+      return uuidToBuffer(value as string)
 
     if (property.format === 'date-time') {
       if (typeof value === 'number' && Number.isFinite(value))
@@ -236,7 +237,7 @@ const assertOwner =
   async (db: RowDatabase, value: unknown) => {
     if (value === undefined || value === null) return
 
-    const owner = uuidToBufferShared(value as string)
+    const owner = uuidToBuffer(value as string)
     const row =
       await db.get(`SELECT 1 AS found FROM ${quoteIdentifier('user')}`
         + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`, [owner])
@@ -295,7 +296,7 @@ const replaceManyRelationship =
 
       const sourceColumn = sourceForeignKey.columns[0]!
       const targetColumn = targetForeignKey.columns[0]!
-      const sourceBuffer = uuidToBufferShared(sourceId)
+      const sourceBuffer = uuidToBuffer(sourceId)
 
       await context.db.run(
         `DELETE FROM ${quoteIdentifier(join.tableName)}`
@@ -307,7 +308,7 @@ const replaceManyRelationship =
           `INSERT INTO ${quoteIdentifier(join.tableName)}`
           + ` (${quoteIdentifier(sourceColumn)}, ${quoteIdentifier(targetColumn)})`
           + ' VALUES (?, ?)'
-          , [sourceBuffer, uuidToBufferShared(targetId)])
+          , [sourceBuffer, uuidToBuffer(targetId)])
       return
     }
 
@@ -327,7 +328,7 @@ const replaceManyRelationship =
         + ' a join table or inverse one relation')
 
     const foreignKey = foreignKeyColumn(target, inverse)
-    const sourceBuffer = uuidToBufferShared(sourceId)
+    const sourceBuffer = uuidToBuffer(sourceId)
 
     await context.db.run(
       `UPDATE ${quoteIdentifier(target.tableName)}`
@@ -340,15 +341,23 @@ const replaceManyRelationship =
         `UPDATE ${quoteIdentifier(target.tableName)}`
         + ` SET ${quoteIdentifier(foreignKey)} = ?`
         + ` WHERE ${quoteIdentifier('id')} = ?`
-        , [sourceBuffer, uuidToBufferShared(targetId)])
+        , [sourceBuffer, uuidToBuffer(targetId)])
   }
 
 export const readResourceRow =
-  async (db: RowDatabase, resource: ResourceMeta, id: string): Promise<Row | undefined> =>
-    db.get(
+  async (db: RowDatabase, resource: ResourceMeta, id: string, userId?: string): Promise<Row | undefined> => {
+    if (userId) {
+      return db.get(
+        `SELECT * FROM ${quoteIdentifier(resource.view)}`
+        + ` WHERE ${quoteIdentifier('id')} = ?`
+        + ` AND ${quoteIdentifier('owner')} = ? LIMIT 1`
+        , [id, userId])
+    }
+    return db.get(
       `SELECT * FROM ${quoteIdentifier(resource.view)}`
       + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`
       , [id])
+  }
 
 export const createResource =
   async ( context: MutationContext
@@ -362,13 +371,20 @@ export const createResource =
 
     if (document.id) {
       columns.push('id')
-      values.push(uuidToBufferShared(document.id))
+      values.push(uuidToBuffer(document.id))
     }
 
     for (const [name, value] of Object.entries(document.attributes)) {
+      if (name === 'owner' && context.userId !== undefined)
+        continue
       if (name === 'owner') await assertOwner(context.db, value)
       columns.push(name)
       values.push(coerceValue(columnFor(resource, name), value))
+    }
+
+    if (context.userId !== undefined) {
+      columns.push('owner')
+      values.push(uuidToBuffer(context.userId))
     }
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
@@ -387,7 +403,7 @@ export const createResource =
         throw new Error(`Relationship "${label}" is not to-one`)
 
       columns.push(foreignKeyColumn(resource.definition, relation))
-      values.push(value === null ? null : uuidToBufferShared(value))
+      values.push(value === null ? null : uuidToBuffer(value))
     }
 
     const sql =
@@ -430,7 +446,7 @@ export const updateResource =
   , id: string
   , document: WriteDocument
   , mode: 'patch' | 'put'): Promise<void> => {
-    const existing = await readResourceRow(context.db, resource, id)
+    const existing = await readResourceRow(context.db, resource, id, context.userId)
     if (!existing)
       throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
 
@@ -488,7 +504,7 @@ export const updateResource =
 
       assignments.set(
         foreignKeyColumn(resource.definition, relation)
-        , value === null ? null : uuidToBufferShared(value))
+        , value === null ? null : uuidToBuffer(value))
     }
 
     if (assignments.size > 0) {
@@ -500,7 +516,7 @@ export const updateResource =
               .map(([column]) => `${quoteIdentifier(column)} = ?`)
               .join(', ')
           + ` WHERE ${quoteIdentifier('id')} = ?`
-          , [...entries.map(([, value]) => value), uuidToBufferShared(id)])
+          , [...entries.map(([, value]) => value), uuidToBuffer(id)])
       } catch (error) {
         throw writeError(error)
       }
@@ -528,11 +544,11 @@ export const deleteResource =
   async ( context: MutationContext
   , resource: ResourceMeta
   , id: string): Promise<void> => {
-    const existing = await readResourceRow(context.db, resource, id)
+    const existing = await readResourceRow(context.db, resource, id, context.userId)
     if (!existing)
       throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
 
-    const idBuffer = uuidToBufferShared(id)
+    const idBuffer = uuidToBuffer(id)
 
     for (const table of context.built.orderedTables) {
       if (!table.derived) continue

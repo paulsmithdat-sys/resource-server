@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { ErrorSerializer, JapiError } from 'ts-japi'
 import { createAuthService } from '../auth/service.ts'
 import { registerAuthRoutes } from '../auth/routes.ts'
+import { sessionMiddleware } from './session.ts'
 import type { BuiltSchema } from '../db/schema-types.ts'
 import type { RowDatabase } from './database.ts'
 import { ApiError, badRequest, notFound } from './errors.ts'
@@ -37,22 +38,22 @@ const noContent =
     c.body(null, 204, headers)
 
 const whereClause =
-  (resource: ResourceMeta, filters: { field: string }[]) => {
-    if (filters.length === 0) return ''
-    return ' WHERE '
-      + filters
-          .map(x => `${quoteIdentifier(x.field)} = ?`)
-          .join(' AND ')
+  (resource: ResourceMeta, filters: { field: string }[], userId?: string) => {
+    const conditions = filters.map(x => `${quoteIdentifier(x.field)} = ?`)
+    if (userId) conditions.push(`${quoteIdentifier('owner')} = ?`)
+    if (conditions.length === 0) return ''
+    return ' WHERE ' + conditions.join(' AND ')
   }
 
 export type AppOptions =
   { built: BuiltSchema
   , db: RowDatabase
   , opaqueServerSetup?: string
+  , requireSession?: boolean
   }
 
 export const createApp =
-  ({ built, db, opaqueServerSetup }: AppOptions) => {
+  ({ built, db, opaqueServerSetup, requireSession }: AppOptions) => {
     const registry = buildRegistry(built)
     const context: MutationContext = { built, db }
     const app = new Hono()
@@ -61,6 +62,12 @@ export const createApp =
       registerAuthRoutes(
         app
         , createAuthService({ db, serverSetup: opaqueServerSetup }))
+
+    if (requireSession) {
+      const requireAuth = sessionMiddleware(db)
+      app.use('/:type', requireAuth)
+      app.use('/:type/:id', requireAuth)
+    }
 
     const resourceFor =
       (type: string) => {
@@ -107,8 +114,12 @@ export const createApp =
       async (c: any) => {
         const resource = resourceFor(c.req.param('type'))
         const query = queryFor(c, resource)
-        const where = whereClause(resource, query.filters)
-        const filterValues = query.filters.map(x => x.value)
+        const userId = c.get('userId') as string | undefined
+        const where = whereClause(resource, query.filters, userId)
+        const filterValues =
+          userId
+            ? [...query.filters.map(x => x.value), userId]
+            : query.filters.map(x => x.value)
 
         const countRow =
           await db.get(
@@ -154,7 +165,8 @@ export const createApp =
       async (c: any) => {
         const resource = resourceFor(c.req.param('type'))
         const id = c.req.param('id')
-        const row = await readResourceRow(db, resource, id)
+        const row = await readResourceRow(
+          db, resource, id, c.get('userId') as string | undefined)
         if (!row)
           throw notFound(
             `Resource "${resource.type}" with id "${id}" was not found`)
@@ -165,6 +177,7 @@ export const createApp =
     const create =
       async (c: any) => {
         const resource = resourceFor(c.req.param('type'))
+        context.userId = c.get('userId') as string | undefined
         const document =
           parseWriteDocument(resource, await readJson(c))
         const id = await createResource(context, resource, document)
@@ -181,6 +194,7 @@ export const createApp =
         async (c: any) => {
           const resource = resourceFor(c.req.param('type'))
           const id = c.req.param('id')
+          context.userId = c.get('userId') as string | undefined
           const document =
             parseWriteDocument(resource, await readJson(c), { id })
           await updateResource(context, resource, id, document, mode)
@@ -192,6 +206,7 @@ export const createApp =
       async (c: any) => {
         const resource = resourceFor(c.req.param('type'))
         const id = c.req.param('id')
+        context.userId = c.get('userId') as string | undefined
         await deleteResource(context, resource, id)
         return noContent(c)
       }

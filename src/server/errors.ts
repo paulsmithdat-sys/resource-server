@@ -31,3 +31,7 @@ export const unauthorized =
 export const conflict =
   (detail: string) =>
     new ApiError(409, 'Conflict', detail)
+
+export const forbidden =
+  (detail: string) =>
+    new ApiError(403, 'Forbidden', detail)
