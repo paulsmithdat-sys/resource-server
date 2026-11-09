@@ -6,8 +6,11 @@ import type
   } from '../db/schema-types.ts'
 import type { Row, RowDatabase } from './database.ts'
 import { badRequest, conflict, notFound } from './errors.ts'
+import { isObject } from './guard.ts'
+import { ajv } from './ajv.ts'
 import type { ResourceMeta, RelationshipMeta } from './registry.ts'
 import { quoteIdentifier } from './query.ts'
+import { UUID_PATTERN, canonicalUuid, uuidToBuffer as uuidToBufferShared } from './uuid.ts'
 
 export type MutationContext =
   { built: BuiltSchema
@@ -20,34 +23,72 @@ export type WriteDocument =
   , relationships: Map<string, string | null | string[]>
   }
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+type AttributeValidator = (data: unknown) => boolean
 
-const isObject =
-  (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value)
+const attributeValidators =
+  new Map<string, AttributeValidator>()
 
-const canonicalUuid =
-  (value: unknown) => {
-    if (typeof value === 'string' && UUID_PATTERN.test(value))
-      return value.toLowerCase()
+const buildAttributeValidator =
+  (resource: ResourceMeta): AttributeValidator => {
+    const cached = attributeValidators.get(resource.type)
+    if (cached) return cached
 
-    if (value instanceof Uint8Array) {
-      if (value.length !== 16)
-        throw new Error('Database returned a UUID with an invalid length')
-      const hex = Buffer.from(value).toString('hex')
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`
-        + `-${hex.slice(16, 20)}-${hex.slice(20)}`
+    const columns = resource.definition.columns.filter(
+      x => x.exposed
+        && x.columnName !== 'updated_at'
+        && x.columnName !== 'id')
+
+    const properties: Record<string, unknown> = {}
+    for (const column of columns) {
+      const property = column.schema
+      const prop: Record<string, unknown> = {}
+      if (property.type) prop.type = property.type
+      if (property.format) prop.format = property.format
+      if (property.enum) prop.enum = property.enum
+      if (property.minLength !== undefined) prop.minLength = property.minLength
+      if (property.maxLength !== undefined) prop.maxLength = property.maxLength
+      properties[column.columnName] = prop
     }
 
-    throw new Error('Database did not return a UUID id')
+    const validator =
+      ajv.compile(
+        { type: 'object'
+        , additionalProperties: false
+        , properties
+        })
+
+    attributeValidators.set(resource.type, validator)
+    return validator
   }
 
-const uuidToBuffer =
-  (value: string) => {
-    if (!UUID_PATTERN.test(value))
-      throw badRequest(`"${value}" is not a canonical UUID`, 'id')
-    return Buffer.from(value.replaceAll('-', ''), 'hex')
+const coerceValue =
+  ( column: ColumnDef
+  , value: unknown
+  ): unknown => {
+    if (value === null) return null
+
+    const property = column.schema
+
+    if (property.format === 'uuid')
+      return uuidToBufferShared(value as string)
+
+    if (property.format === 'date-time') {
+      if (typeof value === 'number' && Number.isFinite(value))
+        return Math.trunc(value)
+      if (typeof value === 'string')
+        return Date.parse(value)
+    }
+
+    if (property.format === 'byte')
+      return Buffer.from(value as string, 'base64')
+
+    if (property.type === 'object' || property.type === 'array')
+      return JSON.stringify(value)
+
+    if (property.type === 'boolean')
+      return value ? 1 : 0
+
+    return value
   }
 
 const identifier =
@@ -126,6 +167,17 @@ export const parseWriteDocument =
       attributes[name] = value
     }
 
+    const validateAttributes = buildAttributeValidator(resource)
+    if (!validateAttributes(attributes)) {
+      const error = (validateAttributes as any).errors?.[0]
+      let field = error?.instancePath?.replace(/^\//, '')
+      if (!field && error?.params?.missingProperty) field = error.params.missingProperty
+      if (!field) field = 'data.attributes'
+      throw badRequest(
+        `Attribute "${field}" is invalid`
+        , `data.attributes.${field}`)
+    }
+
     const rawRelationships = data.relationships ?? {}
     if (!isObject(rawRelationships))
       throw badRequest('Relationships must be an object', 'data.relationships')
@@ -158,108 +210,6 @@ const columnFor =
     return column
   }
 
-const attributeValue =
-  ( column: ColumnDef
-  , value: unknown
-  , parameter: string) => {
-    if (value === null) {
-      if (column.required)
-        throw badRequest(
-          `Attribute "${column.columnName}" cannot be null`, parameter)
-      return null
-    }
-
-    const property = column.schema
-    if (property.format === 'uuid') {
-      if (typeof value !== 'string' || !UUID_PATTERN.test(value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be a canonical UUID`
-          , parameter)
-      return uuidToBuffer(value)
-    }
-
-    if (property.format === 'date-time') {
-      if (typeof value === 'number' && Number.isFinite(value))
-        return Math.trunc(value)
-      if (typeof value === 'string') {
-        const millis = Date.parse(value)
-        if (Number.isFinite(millis)) return millis
-      }
-      throw badRequest(
-        `Attribute "${column.columnName}" must be a date-time`
-        , parameter)
-    }
-
-    if (property.format === 'byte') {
-      if (typeof value !== 'string')
-        throw badRequest(
-          `Attribute "${column.columnName}" must be a base64 string`
-          , parameter)
-      return Buffer.from(value, 'base64')
-    }
-
-    if (property.type === 'object') {
-      if (!isObject(value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be an object`, parameter)
-      return JSON.stringify(value)
-    }
-
-    if (property.type === 'array') {
-      if (!Array.isArray(value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be an array`, parameter)
-      return JSON.stringify(value)
-    }
-
-    if (property.type === 'string') {
-      if (typeof value !== 'string')
-        throw badRequest(
-          `Attribute "${column.columnName}" must be a string`, parameter)
-      if (property.enum && !property.enum.some(x => x === value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be one of `
-          + property.enum.join(', ')
-          , parameter)
-      if (property.minLength !== undefined
-          && value.length < property.minLength)
-        throw badRequest(
-          `Attribute "${column.columnName}" must be at least `
-          + `${property.minLength} characters`
-          , parameter)
-      if (property.maxLength !== undefined
-          && value.length > property.maxLength)
-        throw badRequest(
-          `Attribute "${column.columnName}" must be at most `
-          + `${property.maxLength} characters`
-          , parameter)
-      return value
-    }
-
-    if (property.type === 'integer') {
-      if (typeof value !== 'number' || !Number.isInteger(value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be an integer`, parameter)
-      return value
-    }
-
-    if (property.type === 'number') {
-      if (typeof value !== 'number' || !Number.isFinite(value))
-        throw badRequest(
-          `Attribute "${column.columnName}" must be a number`, parameter)
-      return value
-    }
-
-    if (property.type === 'boolean') {
-      if (typeof value !== 'boolean')
-        throw badRequest(
-          `Attribute "${column.columnName}" must be a boolean`, parameter)
-      return value ? 1 : 0
-    }
-
-    return value
-  }
-
 const writableAttributes =
   (resource: ResourceMeta) =>
     resource.attributes.filter(x => x !== 'updated_at')
@@ -286,10 +236,7 @@ const assertOwner =
   async (db: RowDatabase, value: unknown) => {
     if (value === undefined || value === null) return
 
-    if (typeof value !== 'string' || !UUID_PATTERN.test(value))
-      throw badRequest('Attribute "owner" must be a canonical UUID', 'data.attributes.owner')
-
-    const owner = uuidToBuffer(value)
+    const owner = uuidToBufferShared(value as string)
     const row =
       await db.get(`SELECT 1 AS found FROM ${quoteIdentifier('user')}`
         + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`, [owner])
@@ -348,7 +295,7 @@ const replaceManyRelationship =
 
       const sourceColumn = sourceForeignKey.columns[0]!
       const targetColumn = targetForeignKey.columns[0]!
-      const sourceBuffer = uuidToBuffer(sourceId)
+      const sourceBuffer = uuidToBufferShared(sourceId)
 
       await context.db.run(
         `DELETE FROM ${quoteIdentifier(join.tableName)}`
@@ -360,7 +307,7 @@ const replaceManyRelationship =
           `INSERT INTO ${quoteIdentifier(join.tableName)}`
           + ` (${quoteIdentifier(sourceColumn)}, ${quoteIdentifier(targetColumn)})`
           + ' VALUES (?, ?)'
-          , [sourceBuffer, uuidToBuffer(targetId)])
+          , [sourceBuffer, uuidToBufferShared(targetId)])
       return
     }
 
@@ -380,7 +327,7 @@ const replaceManyRelationship =
         + ' a join table or inverse one relation')
 
     const foreignKey = foreignKeyColumn(target, inverse)
-    const sourceBuffer = uuidToBuffer(sourceId)
+    const sourceBuffer = uuidToBufferShared(sourceId)
 
     await context.db.run(
       `UPDATE ${quoteIdentifier(target.tableName)}`
@@ -393,7 +340,7 @@ const replaceManyRelationship =
         `UPDATE ${quoteIdentifier(target.tableName)}`
         + ` SET ${quoteIdentifier(foreignKey)} = ?`
         + ` WHERE ${quoteIdentifier('id')} = ?`
-        , [sourceBuffer, uuidToBuffer(targetId)])
+        , [sourceBuffer, uuidToBufferShared(targetId)])
   }
 
 export const readResourceRow =
@@ -415,17 +362,13 @@ export const createResource =
 
     if (document.id) {
       columns.push('id')
-      values.push(uuidToBuffer(document.id))
+      values.push(uuidToBufferShared(document.id))
     }
 
     for (const [name, value] of Object.entries(document.attributes)) {
       if (name === 'owner') await assertOwner(context.db, value)
       columns.push(name)
-      values.push(
-        attributeValue(
-          columnFor(resource, name)
-          , value
-          , `data.attributes.${name}`))
+      values.push(coerceValue(columnFor(resource, name), value))
     }
 
     for (const [label, relation] of Object.entries(resource.definition.relations)) {
@@ -444,7 +387,7 @@ export const createResource =
         throw new Error(`Relationship "${label}" is not to-one`)
 
       columns.push(foreignKeyColumn(resource.definition, relation))
-      values.push(value === null ? null : uuidToBuffer(value))
+      values.push(value === null ? null : uuidToBufferShared(value))
     }
 
     const sql =
@@ -499,24 +442,14 @@ export const updateResource =
         if (Object.hasOwn(document.attributes, name)) {
           if (name === 'owner')
             await assertOwner(context.db, document.attributes[name])
-          assignments.set(
-            name
-            , attributeValue(
-                column
-                , document.attributes[name]
-                , `data.attributes.${name}`))
+          assignments.set(name, coerceValue(column, document.attributes[name]))
         }
         else if (column.required) {
           if (column.schema.default === undefined)
             throw badRequest(
               `Attribute "${name}" is required`
               , `data.attributes.${name}`)
-          assignments.set(
-            name
-            , attributeValue(
-                column
-                , column.schema.default
-                , `data.attributes.${name}`))
+          assignments.set(name, coerceValue(column, column.schema.default))
         }
         else {
           assignments.set(name, null)
@@ -526,12 +459,7 @@ export const updateResource =
     else {
       for (const [name, value] of Object.entries(document.attributes)) {
         if (name === 'owner') await assertOwner(context.db, value)
-        assignments.set(
-          name
-          , attributeValue(
-              columnFor(resource, name)
-              , value
-              , `data.attributes.${name}`))
+        assignments.set(name, coerceValue(columnFor(resource, name), value))
       }
     }
 
@@ -560,7 +488,7 @@ export const updateResource =
 
       assignments.set(
         foreignKeyColumn(resource.definition, relation)
-        , value === null ? null : uuidToBuffer(value))
+        , value === null ? null : uuidToBufferShared(value))
     }
 
     if (assignments.size > 0) {
@@ -572,7 +500,7 @@ export const updateResource =
               .map(([column]) => `${quoteIdentifier(column)} = ?`)
               .join(', ')
           + ` WHERE ${quoteIdentifier('id')} = ?`
-          , [...entries.map(([, value]) => value), uuidToBuffer(id)])
+          , [...entries.map(([, value]) => value), uuidToBufferShared(id)])
       } catch (error) {
         throw writeError(error)
       }
@@ -604,7 +532,7 @@ export const deleteResource =
     if (!existing)
       throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
 
-    const idBuffer = uuidToBuffer(id)
+    const idBuffer = uuidToBufferShared(id)
 
     for (const table of context.built.orderedTables) {
       if (!table.derived) continue

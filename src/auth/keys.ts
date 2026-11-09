@@ -1,5 +1,4 @@
 import nacl from 'tweetnacl'
-import naclUtil from 'tweetnacl-util'
 
 export type PublicJwk =
   { kty: 'OKP'
@@ -11,22 +10,12 @@ export type PrivateJwk =
   PublicJwk & { d: string }
 
 const base64Url =
-  (bytes: Uint8Array) =>
-    naclUtil.encodeBase64(bytes)
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replace(/=+$/, '')
+  (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url')
 
 const fromBase64Url =
-  (value: string) => {
-    const normal = value.replaceAll('-', '+').replaceAll('_', '/')
-    const padded = normal + '='.repeat((4 - normal.length % 4) % 4)
-    return naclUtil.decodeBase64(padded)
-  }
+  (value: string) => Buffer.from(value, 'base64url')
 
-const isObject =
-  (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value)
+import { isObject } from '../server/guard.ts'
 
 export const generateKeyPair =
   () => {

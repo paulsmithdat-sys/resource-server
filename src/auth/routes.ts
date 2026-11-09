@@ -1,22 +1,15 @@
 import type { Hono } from 'hono'
 import { badRequest } from '../server/errors.ts'
+import { isObject } from '../server/guard.ts'
+import { readJson } from '../server/io.ts'
 import type { AuthService } from './service.ts'
-
-const readJson =
-  async (c: any) => {
-    try {
-      return await c.req.json()
-    } catch {
-      throw badRequest('Request body must be valid JSON')
-    }
-  }
 
 const keyType =
   (body: unknown) => {
-    if (typeof body !== 'object' || body === null || Array.isArray(body))
+    if (!isObject(body))
       throw badRequest('Request body must be a JSON object')
 
-    const type = (body as Record<string, unknown>).type
+    const type = body.type
     if (typeof type !== 'string')
       throw badRequest('"type" is required and must be a string', 'type')
     return type

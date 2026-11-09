@@ -10,6 +10,13 @@ import
   , publicJwkFromPrivate
   , type PublicJwk
   } from './keys.ts'
+import
+  { validate
+  , registrationStart
+  , loginStart
+  , registrationFinish
+  , loginFinish
+  } from './validation.ts'
 
 export const REGISTRATION_TTL_MS = 10 * 60 * 1000
 export const LOGIN_TTL_MS = 10 * 60 * 1000
@@ -79,62 +86,9 @@ export type AuthService =
   , purgeExpired: () => Promise<void>
   }
 
-const isObject =
-  (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value)
+import { isObject } from '../server/guard.ts'
 
-const stringField =
-  ( body: Record<string, unknown>
-  , name: string
-  , options: { min?: number; max?: number; pattern?: RegExp } = {}) => {
-    const value = body[name]
-    if (typeof value !== 'string')
-      throw badRequest(`"${name}" is required and must be a string`, name)
-    if (value.length < (options.min ?? 1))
-      throw badRequest(
-        `"${name}" must be at least ${options.min ?? 1} characters`, name)
-    if (options.max !== undefined && value.length > options.max)
-      throw badRequest(
-        `"${name}" must be at most ${options.max} characters`, name)
-    if (options.pattern && !options.pattern.test(value))
-      throw badRequest(`"${name}" is invalid`, name)
-    return value
-  }
 
-const optionalStringField =
-  ( body: Record<string, unknown>
-  , name: string
-  , options: { max?: number } = {}) => {
-    const value = body[name]
-    if (value === undefined || value === null) return null
-    if (typeof value !== 'string')
-      throw badRequest(`"${name}" must be a string`, name)
-    if (value.length === 0) return null
-    if (options.max !== undefined && value.length > options.max)
-      throw badRequest(
-        `"${name}" must be at most ${options.max} characters`, name)
-    return value
-  }
-
-const objectBody =
-  (body: unknown) => {
-    if (!isObject(body))
-      throw badRequest('Request body must be a JSON object')
-    return body
-  }
-
-const clientPublicKey =
-  (body: Record<string, unknown>) => {
-    try {
-      return parsePublicJwk(body.clientPublicKey)
-    } catch (error) {
-      throw badRequest(
-        error instanceof Error
-          ? error.message
-          : 'clientPublicKey must be an Ed25519 public JWK'
-        , 'clientPublicKey')
-    }
-  }
 
 const keyId =
   (value: string) => {
@@ -253,19 +207,22 @@ export const createAuthService =
     const startRegistration =
       async (raw: unknown): Promise<RegistrationStart> => {
         await opaque.ready
-        const body = objectBody(raw)
-        const username =
-          stringField(body, 'username', { min: 1, max: 100 })
-        const email =
-          stringField(
-            body
-            , 'email'
-            , { min: 3, max: 255, pattern: /^[^\s@]+@[^\s@]+$/ })
+        const body = validate(registrationStart, raw)
+        const username = body.username as string
+        const email = body.email as string
         const displayName =
-          optionalStringField(body, 'displayName', { max: 100 })
-        const registrationRequest =
-          stringField(body, 'registrationRequest')
-        const publicJwk = clientPublicKey(body)
+          typeof body.displayName === 'string' && body.displayName.length > 0
+            ? body.displayName
+            : null
+        const registrationRequest = body.registrationRequest as string
+        let publicJwk: PublicJwk
+        try {
+          publicJwk = parsePublicJwk(body.clientPublicKey)
+        } catch (error) {
+          throw badRequest(
+            error instanceof Error ? error.message : 'clientPublicKey must be an Ed25519 public JWK'
+            , 'clientPublicKey')
+        }
 
         await purgeExpired()
 
@@ -318,8 +275,8 @@ export const createAuthService =
     const finishRegistration =
       async (id: string, raw: unknown): Promise<RegistrationFinish> => {
         await opaque.ready
-        const body = objectBody(raw)
-        const registrationRecord = stringField(body, 'registrationRecord')
+        const body = validate(registrationFinish, raw)
+        const registrationRecord = body.registrationRecord as string
         const idValue = keyId(id)
 
         return await inTransaction(
@@ -391,11 +348,17 @@ export const createAuthService =
     const startLogin =
       async (raw: unknown): Promise<LoginStart> => {
         await opaque.ready
-        const body = objectBody(raw)
-        const username =
-          stringField(body, 'username', { min: 1, max: 100 })
-        const startLoginRequest = stringField(body, 'startLoginRequest')
-        const publicJwk = clientPublicKey(body)
+        const body = validate(loginStart, raw)
+        const username = body.username as string
+        const startLoginRequest = body.startLoginRequest as string
+        let publicJwk: PublicJwk
+        try {
+          publicJwk = parsePublicJwk(body.clientPublicKey)
+        } catch (error) {
+          throw badRequest(
+            error instanceof Error ? error.message : 'clientPublicKey must be an Ed25519 public JWK'
+            , 'clientPublicKey')
+        }
 
         await purgeExpired()
 
@@ -464,8 +427,8 @@ export const createAuthService =
     const finishLogin =
       async (id: string, raw: unknown): Promise<LoginFinish> => {
         await opaque.ready
-        const body = objectBody(raw)
-        const finishLoginRequest = stringField(body, 'finishLoginRequest')
+        const body = validate(loginFinish, raw)
+        const finishLoginRequest = body.finishLoginRequest as string
         const idValue = keyId(id)
 
         return await inTransaction(
@@ -538,7 +501,9 @@ export const createAuthService =
 
     const finishKey =
       async (id: string, raw: unknown) => {
-        const body = objectBody(raw)
+        if (!isObject(raw))
+          throw badRequest('Request body must be a JSON object')
+        const body = raw as Record<string, unknown>
         const hasRegistration = Object.hasOwn(body, 'registrationRecord')
         const hasLogin = Object.hasOwn(body, 'finishLoginRequest')
 

@@ -5,6 +5,7 @@ import { registerAuthRoutes } from '../auth/routes.ts'
 import type { BuiltSchema } from '../db/schema-types.ts'
 import type { RowDatabase } from './database.ts'
 import { ApiError, badRequest, notFound } from './errors.ts'
+import { readJson } from './io.ts'
 import
   { createResource
   , deleteResource
@@ -34,15 +35,6 @@ const jsonApi =
 const noContent =
   (c: any, headers: Record<string, string> = {}) =>
     c.body(null, 204, headers)
-
-const readJson =
-  async (c: any) => {
-    try {
-      return await c.req.json()
-    } catch {
-      throw badRequest('Request body must be valid JSON')
-    }
-  }
 
 const whereClause =
   (resource: ResourceMeta, filters: { field: string }[]) => {
