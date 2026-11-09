@@ -1212,6 +1212,7 @@ bun run start
 DB_PATH=.db
 ELYSIA_PORT=5734
 OPAQUE_SERVER_SETUP=...
+SCHEMA_DIR=./schemas   # optional; directory of .json or .ts schema files
 ```
 
 `.env` is gitignored. Never commit server secrets.

@@ -1,5 +1,5 @@
 {
-  "name": "hono-resource-server",
+  "name": "resource-server",
   "type": "module",
   "version": "0.0.1",
   "engines": {

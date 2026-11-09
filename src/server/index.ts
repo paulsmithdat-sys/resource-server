@@ -11,7 +11,8 @@ if (!opaqueServerSetup)
     'OPAQUE_SERVER_SETUP is required. '
     + 'Generate one with `bunx @serenity-kit/opaque create-server-setup`.')
 
-const built = buildSchema(await loadSchemas())
+const built = buildSchema(
+  await loadSchemas({ schemaDir: process.env.SCHEMA_DIR }))
 const app =
   createApp(
     { built

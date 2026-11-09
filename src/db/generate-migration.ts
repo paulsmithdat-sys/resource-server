@@ -61,7 +61,8 @@ const runDrizzleGenerate =
 
 const main =
   async () => {
-    const loaded = await loadSchemas()
+    const loaded = await loadSchemas(
+      { schemaDir: process.env.SCHEMA_DIR })
     const built = buildSchema(loaded)
     const exportsResult = await writeExports(built, loaded, exportPath)
 
