@@ -5,6 +5,7 @@ export type RelationshipMeta =
   , cardinality: 'one' | 'many'
   , table: string
   , type: string
+  , linkAny: boolean
   }
 
 export type ResourceMeta =
@@ -12,6 +13,7 @@ export type ResourceMeta =
   , table: string
   , view: string
   , definition: TableDef
+  , access: TableDef['access']
   , columns: string[]
   , attributes: string[]
   , foreignKeyColumns: string[]
@@ -80,6 +82,7 @@ export const buildRegistry =
               , cardinality: relation.cardinality
               , table: relation.table
               , type: relation.table
+              , linkAny: relation['x-link-any'] === true
               }
             ])))
 
@@ -89,6 +92,7 @@ export const buildRegistry =
           , table: table.tableName
           , view: `${table.tableName}_view`
           , definition: table
+          , access: table.access
           , columns
           , attributes
           , foreignKeyColumns:

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { access, readdir, readFile, writeFile } from 'node:fs/promises'
+import { access, readdir, readFile } from 'node:fs/promises'
+import { writeIfChanged } from './fs.ts'
 import { join } from 'node:path'
 import { buildSchema } from './build-schema.ts'
 import
@@ -96,9 +97,8 @@ const main =
     if (targetDir) {
       const migrationPath = join(migrationsDir, targetDir, 'migration.sql')
       const existing = await readFile(migrationPath, 'utf8')
-      const next = postprocessMigration(existing, changed)
-      if (next !== existing)
-        await writeFile(migrationPath, next, 'utf8')
+      const next = postprocessMigration(existing, changed, desired)
+      await writeIfChanged(migrationPath, next)
       console.log(
         `Migration ${targetDir}: ${changed.length} custom DDL group(s) applied.`)
 

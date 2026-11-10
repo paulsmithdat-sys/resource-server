@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { writeIfChanged } from './fs.ts'
 import { dirname, join, relative, sep } from 'node:path'
 import type { BuiltSchema, LoadedSchema } from './schema-types.ts'
 
@@ -63,20 +63,10 @@ export const buildExportsSource =
 
 export const writeExports =
   async (built: BuiltSchema, loaded: LoadedSchema[], exportPath: string) => {
-    const source = buildExportsSource(built, loaded, exportPath)
-    await mkdir(dirname(exportPath), { recursive: true })
-
-    let previous = ''
-    try {
-      previous = await readFile(exportPath, 'utf8')
-    } catch {
-      // The file does not exist yet.
-    }
-
-    if (previous !== source)
-      await writeFile(exportPath, source, 'utf8')
-
-    return { path: exportPath, changed: previous !== source }
+    const changed =
+      await writeIfChanged(
+        exportPath, buildExportsSource(built, loaded, exportPath))
+    return { path: exportPath, changed }
   }
 
 export { projectRoot }

@@ -1,5 +1,26 @@
 export type Cardinality = 'one' | 'many'
 
+export type Visibility = 'private' | 'shared' | 'authenticated' | 'public'
+
+export type Operation = 'read' | 'create' | 'update' | 'delete'
+
+// Normalized x-access. read/create 'public' allow requests without a session.
+export type AccessConfig =
+  { read: 'session' | 'public'
+  // 'role': only holders of a role that grants create may create rows
+  , create: 'session' | 'public' | 'role'
+  , visibility: Visibility[]
+  , defaultVisibility: Visibility
+  , shareable: boolean
+  , signed: Operation[]
+  // role name -> operations its holders may perform on every row
+  , roles: Record<string, Operation[]>
+  // label of a to-one relation; whoever can read that parent can read the row
+  , inherit?: string
+  // operations recorded in audit_log
+  , audited: Operation[]
+  }
+
 export type RelationConfig =
   { table: string
   , column?: string
@@ -10,6 +31,8 @@ export type RelationConfig =
   , onDelete?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   , onUpdate?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   , 'x-exposed'?: boolean
+  // Allows linking to any existing row, not just rows the writer owns
+  , 'x-link-any'?: boolean
   , exposed?: boolean
   }
 
@@ -41,8 +64,11 @@ export type JSONSchema =
   , default?: unknown
   , 'x-system'?: boolean
   , 'x-exposed'?: boolean
+  , 'x-access'?: Record<string, unknown>
   , 'x-relations'?: Record<string, RelationConfig>
   , 'x-unique-constraints'?: string[][]
+  // Raw SQL CHECK expressions; used by derived tables
+  , 'x-checks'?: string[]
   , [key: string]: unknown
   }
 
@@ -80,6 +106,7 @@ export type TableDef =
   , isSystem: boolean
   , derived: boolean
   , exposed: boolean
+  , access: AccessConfig
   , relations: Record<string, RelationConfig>
   , foreignKeys: ForeignKeyDef[]
   , uniqueConstraints: string[][]

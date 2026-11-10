@@ -7,16 +7,38 @@ import type
 import type { Row, RowDatabase } from './database.ts'
 import { badRequest, conflict, forbidden, notFound } from './errors.ts'
 import { isObject } from './guard.ts'
-import { ajv } from './ajv.ts'
-import type { ResourceMeta, RelationshipMeta } from './registry.ts'
+import { ajv, errorField } from './ajv.ts'
+import type { Registry, ResourceMeta, RelationshipMeta } from './registry.ts'
+import { joinForeignKeys } from '../db/views.ts'
 import { quoteIdentifier } from './query.ts'
+import
+  { deleteScope
+  , granted
+  , writeScope
+  , type Scope
+  , type Viewer
+  } from './scope.ts'
+import { exists, insert, remove, update, type Values } from './sql.ts'
 import { UUID_PATTERN, canonicalUuid, uuidToBuffer } from './uuid.ts'
 
 export type MutationContext =
   { built: BuiltSchema
   , db: RowDatabase
+  , registry: Registry
   , userId?: string
+  , anonymous?: boolean
+  , roles?: string[]
+  , signed?: boolean
+  , isOwner?: boolean
   }
+
+const viewerIn =
+  (context: MutationContext): Viewer => (
+    { userId: context.userId
+    , anonymous: context.anonymous
+    , roles: context.roles
+    , signed: context.signed
+    })
 
 export type WriteDocument =
   { id?: string
@@ -39,17 +61,16 @@ const buildAttributeValidator =
         && x.columnName !== 'updated_at'
         && x.columnName !== 'id')
 
-    const properties: Record<string, unknown> = {}
-    for (const column of columns) {
-      const property = column.schema
-      const prop: Record<string, unknown> = {}
-      if (property.type) prop.type = property.type
-      if (property.format) prop.format = property.format
-      if (property.enum) prop.enum = property.enum
-      if (property.minLength !== undefined) prop.minLength = property.minLength
-      if (property.maxLength !== undefined) prop.maxLength = property.maxLength
-      properties[column.columnName] = prop
-    }
+    const keys = ['type', 'format', 'enum', 'minLength', 'maxLength'] as const
+    const properties =
+      Object.fromEntries(
+        columns.map(column => (
+          [ column.columnName
+          , Object.fromEntries(
+              keys
+                .filter(key => column.schema[key] !== undefined)
+                .map(key => [key, column.schema[key]]))
+          ])))
 
     const validator =
       ajv.compile(
@@ -107,7 +128,7 @@ const identifier =
     return value.id.toLowerCase()
   }
 
-const parseRelationship =
+export const parseRelationship =
   ( label: string
   , value: unknown
   , meta: RelationshipMeta): string | null | string[] => {
@@ -170,10 +191,7 @@ export const parseWriteDocument =
 
     const validateAttributes = buildAttributeValidator(resource)
     if (!validateAttributes(attributes)) {
-      const error = (validateAttributes as any).errors?.[0]
-      let field = error?.instancePath?.replace(/^\//, '')
-      if (!field && error?.params?.missingProperty) field = error.params.missingProperty
-      if (!field) field = 'data.attributes'
+      const field = errorField(validateAttributes, 'data.attributes')
       throw badRequest(
         `Attribute "${field}" is invalid`
         , `data.attributes.${field}`)
@@ -233,18 +251,44 @@ const assertRequiredAttributes =
     }
   }
 
-const assertOwner =
-  async (db: RowDatabase, value: unknown) => {
-    if (value === undefined || value === null) return
+type Mode = 'create' | 'put' | 'patch'
 
-    const owner = uuidToBuffer(value as string)
-    const row =
-      await db.get(`SELECT 1 AS found FROM ${quoteIdentifier('user')}`
-        + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`, [owner])
-    if (!row)
-      throw badRequest(
-        `Owner "${value}" does not reference an existing user`
-        , 'data.attributes.owner')
+const exposedRelations =
+  (resource: ResourceMeta, cardinality?: 'one' | 'many') =>
+    Object.entries(resource.definition.relations).filter(
+      ([, relation]) =>
+        relation.exposed !== false
+        && (cardinality === undefined || relation.cardinality === cardinality))
+
+const assertRelationshipTargets =
+  async (
+    context: MutationContext,
+    resource: ResourceMeta,
+    document: WriteDocument) => {
+    // Purpose: reject links to rows the writer does not own (anonymous writers: non-public rows)
+    if (context.userId === undefined && !context.anonymous) return
+
+    for (const [label, relation] of exposedRelations(resource)) {
+      const value = document.relationships.get(label)
+      const parent =
+        label === resource.access.inherit ? context.registry.get(relation.table) : undefined
+      for (const id of [value ?? []].flat()) {
+        // A row may join a parent it inherits from when the writer can write to that parent.
+        if (parent) {
+          if (!await readResourceRow(
+            context.db, parent, id, writeScope(viewerIn(context), parent)))
+            throw notFound(`Related ${relation.table} "${id}" was not found`)
+          continue
+        }
+        const condition =
+          relation['x-link-any'] ? {}
+          : context.userId !== undefined ? { owner: uuidToBuffer(context.userId) }
+          : { visibility: 'public' }
+        if (!await exists(
+          context.db, relation.table, { id: uuidToBuffer(id), ...condition }))
+          throw notFound(`Related ${relation.table} "${id}" was not found`)
+      }
+    }
   }
 
 const foreignKeyColumn =
@@ -285,10 +329,8 @@ const replaceManyRelationship =
         throw new Error(
           `${resource.type}: join table "${relation.through}" does not exist`)
 
-      const sourceForeignKey =
-        join.foreignKeys.find(x => x.foreignTable === resource.table)
-      const targetForeignKey =
-        join.foreignKeys.find(x => x.foreignTable === relation.table)
+      const { source: sourceForeignKey, target: targetForeignKey } =
+        joinForeignKeys(join, resource.table, relation.table)
       if (!sourceForeignKey || !targetForeignKey)
         throw new Error(
           `${resource.type}: join table "${relation.through}" needs`
@@ -298,17 +340,16 @@ const replaceManyRelationship =
       const targetColumn = targetForeignKey.columns[0]!
       const sourceBuffer = uuidToBuffer(sourceId)
 
-      await context.db.run(
-        `DELETE FROM ${quoteIdentifier(join.tableName)}`
-        + ` WHERE ${quoteIdentifier(sourceColumn)} = ?`
-        , [sourceBuffer])
+      await remove(context.db, join.tableName, { [sourceColumn]: sourceBuffer })
 
       for (const targetId of targetIds)
-        await context.db.run(
-          `INSERT INTO ${quoteIdentifier(join.tableName)}`
-          + ` (${quoteIdentifier(sourceColumn)}, ${quoteIdentifier(targetColumn)})`
-          + ' VALUES (?, ?)'
-          , [sourceBuffer, uuidToBuffer(targetId)])
+        await insert(
+          context.db, join.tableName
+          , { [sourceColumn]: sourceBuffer
+            , [targetColumn]: uuidToBuffer(targetId)
+            // The link belongs to whoever made it.
+            , ...(context.userId ? { owner: uuidToBuffer(context.userId) } : {})
+            })
       return
     }
 
@@ -330,113 +371,138 @@ const replaceManyRelationship =
     const foreignKey = foreignKeyColumn(target, inverse)
     const sourceBuffer = uuidToBuffer(sourceId)
 
-    await context.db.run(
-      `UPDATE ${quoteIdentifier(target.tableName)}`
-      + ` SET ${quoteIdentifier(foreignKey)} = NULL`
-      + ` WHERE ${quoteIdentifier(foreignKey)} = ?`
-      , [sourceBuffer])
+    await update(
+      context.db, target.tableName, { [foreignKey]: null }, { [foreignKey]: sourceBuffer })
 
     for (const targetId of targetIds)
-      await context.db.run(
-        `UPDATE ${quoteIdentifier(target.tableName)}`
-        + ` SET ${quoteIdentifier(foreignKey)} = ?`
-        + ` WHERE ${quoteIdentifier('id')} = ?`
-        , [sourceBuffer, uuidToBuffer(targetId)])
+      await update(
+        context.db, target.tableName
+        , { [foreignKey]: sourceBuffer }, { id: uuidToBuffer(targetId) })
   }
 
 export const readResourceRow =
-  async (db: RowDatabase, resource: ResourceMeta, id: string, userId?: string): Promise<Row | undefined> => {
-    if (userId) {
-      return db.get(
-        `SELECT * FROM ${quoteIdentifier(resource.view)}`
-        + ` WHERE ${quoteIdentifier('id')} = ?`
-        + ` AND ${quoteIdentifier('owner')} = ? LIMIT 1`
-        , [id, userId])
+  (db: RowDatabase, resource: ResourceMeta, id: string, scope: Scope = { sql: '', params: [] }): Promise<Row | undefined> =>
+    db.get(
+      `SELECT * FROM ${quoteIdentifier(resource.view)} WHERE \`id\` = ?`
+      + (scope.sql ? ` AND ${scope.sql}` : '')
+      + ' LIMIT 1'
+      , [id, ...scope.params])
+
+const attributeAssignments =
+  async (
+    context: MutationContext,
+    resource: ResourceMeta,
+    document: WriteDocument,
+    mode: Mode) => {
+    // Purpose: turn written attributes into column values (PUT resets omitted ones)
+    const { attributes } = document
+    const names =
+      mode === 'put' ? writableAttributes(resource) : Object.keys(attributes)
+    const assignments: Values = {}
+
+    for (const name of names) {
+      // The owner is never taken from the client: it is the signed-in creator.
+      if (name === 'owner') continue
+      // Shared writers may edit content but not who can read it.
+      if (name === 'visibility' && context.isOwner === false) {
+        if (Object.hasOwn(attributes, name))
+          throw forbidden('Only the owner can change visibility', 'data.attributes.visibility')
+        continue
+      }
+
+      const column = columnFor(resource, name)
+      let value = attributes[name]
+      if (!Object.hasOwn(attributes, name)) {
+        if (column.required && column.schema.default === undefined)
+          throw badRequest(
+            `Attribute "${name}" is required`, `data.attributes.${name}`)
+        value = column.required ? column.schema.default : null
+      }
+
+      assignments[name] = coerceValue(column, value)
     }
-    return db.get(
-      `SELECT * FROM ${quoteIdentifier(resource.view)}`
-      + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`
-      , [id])
+
+    return assignments
+  }
+
+const foreignKeyAssignments =
+  (resource: ResourceMeta, document: WriteDocument, mode: Mode) => {
+    // Purpose: turn to-one relationships into foreign key column values
+    const assignments: Values = {}
+
+    for (const [label, relation] of exposedRelations(resource, 'one')) {
+      const value = document.relationships.get(label)
+      const column = foreignKeyColumn(resource.definition, relation)
+      const missing =
+        () => badRequest(
+          `Relationship "${label}" is required`
+          , `data.relationships.${label}`)
+
+      if (value === undefined) {
+        if (relation.required && mode !== 'patch') throw missing()
+        if (mode === 'put') assignments[column] = null
+        continue
+      }
+
+      if (Array.isArray(value))
+        throw new Error(`Relationship "${label}" is not to-one`)
+      if (value === null && relation.required) throw missing()
+
+      assignments[column] = value === null ? null : uuidToBuffer(value)
+    }
+
+    return assignments
+  }
+
+const replaceManyRelationships =
+  async (
+    context: MutationContext,
+    resource: ResourceMeta,
+    id: string,
+    document: WriteDocument,
+    mode: Mode) => {
+    // Purpose: rewrite to-many relationships that were written (PUT clears the rest)
+    for (const [label, relation] of exposedRelations(resource, 'many')) {
+      const targets =
+        document.relationships.get(label) ?? (mode === 'put' ? [] : undefined)
+      if (targets === undefined) continue
+
+      await replaceManyRelationship(
+        context, resource, relation, id, [targets].flat() as string[])
+    }
   }
 
 export const createResource =
   async ( context: MutationContext
   , resource: ResourceMeta
   , document: WriteDocument): Promise<string> => {
+    if (resource.access.create === 'role'
+        && (context.userId !== undefined || context.anonymous)
+        && !granted(viewerIn(context), resource, 'create'))
+      throw forbidden(`Creating "${resource.type}" needs a role that allows it`)
+
     assertRequiredAttributes(
       resource, new Set(Object.keys(document.attributes)))
+    await assertRelationshipTargets(context, resource, document)
 
-    const columns: string[] = []
-    const values: unknown[] = []
-
-    if (document.id) {
-      columns.push('id')
-      values.push(uuidToBuffer(document.id))
-    }
-
-    for (const [name, value] of Object.entries(document.attributes)) {
-      if (name === 'owner' && context.userId !== undefined)
-        continue
-      if (name === 'owner') await assertOwner(context.db, value)
-      columns.push(name)
-      values.push(coerceValue(columnFor(resource, name), value))
-    }
-
-    if (context.userId !== undefined) {
-      columns.push('owner')
-      values.push(uuidToBuffer(context.userId))
-    }
-
-    for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'one' || relation.exposed === false) continue
-
-      const value = document.relationships.get(label)
-      if (value === undefined) {
-        if (relation.required)
-          throw badRequest(
-            `Relationship "${label}" is required`
-            , `data.relationships.${label}`)
-        continue
+    const assignments =
+      { ...(document.id ? { id: uuidToBuffer(document.id) } : {})
+      , ...await attributeAssignments(context, resource, document, 'create')
+      , ...(context.userId !== undefined
+          ? { owner: uuidToBuffer(context.userId) }
+          : {})
+      , ...foreignKeyAssignments(resource, document, 'create')
       }
-
-      if (Array.isArray(value))
-        throw new Error(`Relationship "${label}" is not to-one`)
-
-      columns.push(foreignKeyColumn(resource.definition, relation))
-      values.push(value === null ? null : uuidToBuffer(value))
-    }
-
-    const sql =
-      columns.length === 0
-        ? `INSERT INTO ${quoteIdentifier(resource.table)}`
-          + ' DEFAULT VALUES RETURNING `id`'
-        : `INSERT INTO ${quoteIdentifier(resource.table)}`
-          + ` (${columns.map(quoteIdentifier).join(', ')})`
-          + ` VALUES (${columns.map(() => '?').join(', ')})`
-          + ' RETURNING `id`'
 
     let inserted: Row | undefined
     try {
-      inserted = await context.db.get(sql, values)
+      inserted = await insert(context.db, resource.table, assignments)
     } catch (error) {
       throw writeError(error)
     }
 
     const id = canonicalUuid(inserted?.id)
-
-    for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'many' || relation.exposed === false) continue
-
-      const targets = document.relationships.get(label)
-      if (targets === undefined) continue
-      await replaceManyRelationship(
-        context
-        , resource
-        , relation
-        , id
-        , Array.isArray(targets) ? targets : [])
-    }
-
+    await replaceManyRelationships(context, resource, id, document, 'create')
     return id
   }
 
@@ -446,105 +512,44 @@ export const updateResource =
   , id: string
   , document: WriteDocument
   , mode: 'patch' | 'put'): Promise<void> => {
-    const existing = await readResourceRow(context.db, resource, id, context.userId)
+    const existing =
+      await readResourceRow(
+        context.db, resource, id, writeScope(viewerIn(context), resource))
     if (!existing)
       throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
-
-    const assignments = new Map<string, unknown>()
-
-    if (mode === 'put') {
-      for (const name of writableAttributes(resource)) {
-        const column = columnFor(resource, name)
-        if (Object.hasOwn(document.attributes, name)) {
-          if (name === 'owner')
-            await assertOwner(context.db, document.attributes[name])
-          assignments.set(name, coerceValue(column, document.attributes[name]))
-        }
-        else if (column.required) {
-          if (column.schema.default === undefined)
-            throw badRequest(
-              `Attribute "${name}" is required`
-              , `data.attributes.${name}`)
-          assignments.set(name, coerceValue(column, column.schema.default))
-        }
-        else {
-          assignments.set(name, null)
-        }
+    context =
+      { ...context
+      , isOwner:
+          context.userId === undefined
+          || existing.owner === context.userId
+          || granted(viewerIn(context), resource, 'update')
       }
-    }
-    else {
-      for (const [name, value] of Object.entries(document.attributes)) {
-        if (name === 'owner') await assertOwner(context.db, value)
-        assignments.set(name, coerceValue(columnFor(resource, name), value))
-      }
-    }
+    await assertRelationshipTargets(context, resource, document)
 
-    for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'one' || relation.exposed === false) continue
-
-      const value = document.relationships.get(label)
-      if (value === undefined) {
-        if (mode === 'put') {
-          if (relation.required)
-            throw badRequest(
-              `Relationship "${label}" is required`
-              , `data.relationships.${label}`)
-          assignments.set(foreignKeyColumn(resource.definition, relation), null)
-        }
-        continue
+    const assignments =
+      { ...await attributeAssignments(context, resource, document, mode)
+      , ...foreignKeyAssignments(resource, document, mode)
       }
 
-      if (value === null && relation.required)
-        throw badRequest(
-          `Relationship "${label}" is required`
-          , `data.relationships.${label}`)
-
-      if (Array.isArray(value))
-        throw new Error(`Relationship "${label}" is not to-one`)
-
-      assignments.set(
-        foreignKeyColumn(resource.definition, relation)
-        , value === null ? null : uuidToBuffer(value))
-    }
-
-    if (assignments.size > 0) {
-      const entries = [...assignments]
+    if (Object.keys(assignments).length > 0) {
       try {
-        await context.db.run(
-          `UPDATE ${quoteIdentifier(resource.table)} SET `
-          + entries
-              .map(([column]) => `${quoteIdentifier(column)} = ?`)
-              .join(', ')
-          + ` WHERE ${quoteIdentifier('id')} = ?`
-          , [...entries.map(([, value]) => value), uuidToBuffer(id)])
+        await update(
+          context.db, resource.table, assignments, { id: uuidToBuffer(id) })
       } catch (error) {
         throw writeError(error)
       }
     }
 
-    for (const [label, relation] of Object.entries(resource.definition.relations)) {
-      if (relation.cardinality !== 'many' || relation.exposed === false) continue
-
-      let targets = document.relationships.get(label)
-      if (targets === undefined) {
-        if (mode !== 'put') continue
-        targets = []
-      }
-
-      await replaceManyRelationship(
-        context
-        , resource
-        , relation
-        , id
-        , Array.isArray(targets) ? targets : [])
-    }
+    await replaceManyRelationships(context, resource, id, document, mode)
   }
 
 export const deleteResource =
   async ( context: MutationContext
   , resource: ResourceMeta
   , id: string): Promise<void> => {
-    const existing = await readResourceRow(context.db, resource, id, context.userId)
+    const existing =
+      await readResourceRow(
+        context.db, resource, id, deleteScope(viewerIn(context), resource))
     if (!existing)
       throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
 
@@ -555,18 +560,52 @@ export const deleteResource =
 
       for (const foreignKey of table.foreignKeys) {
         if (foreignKey.foreignTable !== resource.table) continue
-        await context.db.run(
-          `DELETE FROM ${quoteIdentifier(table.tableName)}`
-          + ` WHERE ${quoteIdentifier(foreignKey.columns[0]!)} = ?`
-          , [idBuffer])
+        await remove(
+          context.db, table.tableName, { [foreignKey.columns[0]!]: idBuffer })
       }
     }
 
     try {
-      await context.db.run(
-        `DELETE FROM ${quoteIdentifier(resource.table)}`
-        + ` WHERE ${quoteIdentifier('id')} = ?`
-        , [idBuffer])
+      await remove(context.db, resource.table, { id: idBuffer })
+    } catch (error) {
+      throw writeError(error)
+    }
+  }
+
+export const changeRelationship =
+  async ( context: MutationContext
+  , resource: ResourceMeta
+  , id: string
+  , label: string
+  , value: string | null | string[]
+  , how: 'replace' | 'add' | 'remove'): Promise<void> => {
+    // Purpose: replace a relationship, or add to / remove from a to-many one, as its own request
+    const relationships = new Map([[label, value]])
+    if (how === 'replace')
+      return updateResource(
+        context, resource, id, { attributes: {}, relationships }, 'patch')
+
+    const relation = resource.definition.relations[label]!
+    if (relation.cardinality !== 'many' || !Array.isArray(value))
+      throw forbidden(`Relationship "${label}" is to-one; replace it with PATCH`)
+
+    const existing =
+      await readResourceRow(
+        context.db, resource, id, writeScope(viewerIn(context), resource))
+    if (!existing)
+      throw notFound(`Resource "${resource.type}" with id "${id}" was not found`)
+    if (how === 'add')
+      await assertRelationshipTargets(
+        context, resource, { attributes: {}, relationships })
+
+    const current =
+      (JSON.parse(String(existing[label] ?? '[]')) as Row[]).map(x => String(x.id))
+    const next =
+      how === 'add'
+        ? [...new Set([...current, ...value])]
+        : current.filter(x => !value.includes(x))
+    try {
+      await replaceManyRelationship(context, resource, relation, id, next)
     } catch (error) {
       throw writeError(error)
     }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildSchema } from './build-schema.ts'
 import
@@ -12,7 +13,7 @@ import { loadSchemas } from './load-schemas.ts'
 
 describe('generation idempotency', () => {
   test('two identical runs produce identical output and no custom DDL changes', async () => {
-    const dir = await mkdtemp('/tmp/opencode/serber-idempotency-')
+    const dir = await mkdtemp(join(tmpdir(), 'serber-idempotency-'))
     const exportPath = join(dir, '.drizzleExports/index.ts')
 
     try {
@@ -32,12 +33,23 @@ describe('generation idempotency', () => {
       expect(secondBuilt.orderedTables.map(x => x.tableName)).toEqual(
         [ 'article'
         , 'article_tag'
+        , 'audit_log'
+        , 'auth_limit'
+        , 'chat'
+        , 'chat_share'
+        , 'feedback'
         , 'key'
+        , 'message'
+        , 'note'
+        , 'note_share'
+        , 'payment'
+        , 'request_nonce'
         , 'schema'
         , 'tag'
         , 'user'
         , 'user_group'
         , 'user_group_membership'
+        , 'user_role'
         ])
     } finally {
       await rm(dir, { recursive: true, force: true })

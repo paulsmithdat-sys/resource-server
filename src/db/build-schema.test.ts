@@ -52,7 +52,7 @@ describe('buildSchema default columns', () => {
 
     expect(config.name).toBe('widget')
     expect(config.columns.map(x => x.name))
-      .toEqual(['id', 'updated_at', 'owner'])
+      .toEqual(['id', 'updated_at', 'owner', 'visibility'])
 
     const [id, updatedAt] = config.columns
     expect(id!.getSQLType()).toBe('blob')
@@ -76,7 +76,7 @@ describe('buildSchema default columns', () => {
       })
 
     expect(config.columns.map(x => x.name))
-      .toEqual(['id', 'updated_at', 'owner'])
+      .toEqual(['id', 'updated_at', 'owner', 'visibility'])
   })
 
   test('places id, updated_at, and owner first and snake_cases every column', () => {
@@ -90,7 +90,7 @@ describe('buildSchema default columns', () => {
       })
 
     expect(config.columns.map(x => x.name))
-      .toEqual(['id', 'updated_at', 'owner', 'display_name', 'created_at'])
+      .toEqual(['id', 'updated_at', 'owner', 'visibility', 'display_name', 'created_at'])
   })
 })
 
@@ -227,7 +227,7 @@ describe('buildSchema relations', () => {
 
     const widget = built.tables.Widget!
     expect(widget.columns.map(x => x.columnName))
-      .toEqual(['id', 'updated_at', 'owner', 'user_id'])
+      .toEqual(['id', 'updated_at', 'owner', 'visibility', 'user_id'])
     expect(widget.foreignKeys).toEqual(
       [ { columns: ['user_id']
         , foreignTable: 'user'
@@ -347,7 +347,7 @@ describe('buildSchema derived relations', () => {
     expect(join.tableName).toBe('article_tag')
     expect(join.derived).toBe(true)
     expect(join.columns.map(x => x.columnName))
-      .toEqual(['id', 'updated_at', 'owner', 'article_id', 'tag_id'])
+      .toEqual(['id', 'updated_at', 'owner', 'visibility', 'article_id', 'tag_id'])
 
     const config = getTableConfig(join.drizzleSchema)
     const articleId = config.columns.find(x => x.name === 'article_id')!
@@ -459,15 +459,20 @@ describe('buildSchema derived relations', () => {
           })
       ])).toThrow('Conflicting join table names')
 
-    expect(() => buildSchema(
+    const built = buildSchema(
       [ loadedSchema(
           { title: 'Node'
           , type: 'object'
           , properties: {}
           , 'x-relations':
-            { children: { table: 'node', column: 'id', cardinality: 'many' } }
+            { links: { table: 'node', column: 'id', cardinality: 'many' } }
           })
-      ])).toThrow('Self-referential many-to-many')
+      ])
+    const join = built.orderedTables.find(x => x.tableName === 'node_links')!
+    expect(join.columns.map(x => x.columnName)).toEqual(
+      expect.arrayContaining(['node_id', 'related_node_id']))
+    expect(built.orderedTables.find(x => x.tableName === 'node')!
+      .relations.links!.through).toBe('node_links')
   })
 
   test('normalizes and validates unique constraints', () => {

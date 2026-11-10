@@ -76,3 +76,19 @@ describe('postprocessMigration', () => {
     expect(result).toContain('CREATE TRIGGER IF NOT EXISTS `widget_updated`')
   })
 })
+
+describe('rebuilt tables', () => {
+  test('re-adds the updated_at trigger for tables drizzle-kit recreated', () => {
+    const trigger =
+      { key: 'trigger:note', kind: 'trigger' as const, name: 'note_updated'
+      , sql: 'CREATE TRIGGER `note_updated` AFTER UPDATE ON `note` BEGIN SELECT 1; END'
+      , dropSql: 'DROP TRIGGER IF EXISTS `note_updated`;' }
+    const other = { ...trigger, key: 'trigger:tag', name: 'tag_updated' }
+    const sql =
+      'CREATE TABLE `__new_note` (`id` blob);\nALTER TABLE `__new_note` RENAME TO `note`;'
+
+    const result = postprocessMigration(sql, [], [trigger, other])
+    expect(result).toContain('CREATE TRIGGER `note_updated`')
+    expect(result).not.toContain('tag_updated')
+  })
+})

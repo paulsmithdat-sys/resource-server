@@ -1,3 +1,4 @@
+import { sessionKeyId } from '../src/auth/session-key.ts'
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPair } from '../src/auth/keys.ts'
 import { LOGIN_TTL_MS, SESSION_TTL_MS } from '../src/auth/service.ts'
@@ -29,8 +30,8 @@ const keyRow =
   async (db: any, id: string): Promise<any> =>
     await db.get(
       'SELECT `type`, `jwk`, `client_jwk`, `material`, `expires_at`,'
-      + ' `consumed_at`, `user_id`, `owner` FROM `key` WHERE `id` = ?'
-      , [uuidToBuffer(id)])
+      + ' `consumed_at`, `user_id`, `owner` FROM `key` WHERE `id` IN (?, ?)'
+      , [uuidToBuffer(id), sessionKeyId(id)])
 
 const loginBody =
   (overrides: Record<string, unknown> = {}) =>
@@ -225,7 +226,7 @@ describe('login', () => {
     expect(user.status).toBe(200)
   })
 
-  test('keeps login state usable after an invalid finish', async () => {
+  test('burns the login state after an invalid finish', async () => {
     const { app } = await createTestServer()
     await register(app, credentials())
 
@@ -244,14 +245,12 @@ describe('login', () => {
     expect(invalid.response.status).toBe(401)
 
     const pending = await getKey(app, start.document.id)
-    expect(pending.document.consumedAt).toBeNull()
+    expect(pending.document.consumedAt).not.toBeNull()
 
     const valid =
       await sendFinishLogin(
         app, start.document.id, loginResult!.finishLoginRequest)
-    expect(valid.response.status).toBe(200)
-    expect(valid.document.type).toBe('session')
-    expect(loginResult!.sessionKey.length).toBeGreaterThan(0)
+    expect(valid.response.status).toBe(401)
   })
 
   test('rejects replayed login state', async () => {
@@ -346,9 +345,6 @@ describe('login', () => {
     await expectBadRequest(
       await postKey(app, loginBody({ startLoginRequest: '' }))
       , 'startLoginRequest')
-    await expectBadRequest(
-      await postKey(app, loginBody({ clientPublicKey: undefined }))
-      , 'clientPublicKey')
     await expectBadRequest(
       await postKey(app, loginBody({ clientPublicKey: { kty: 'RSA' } }))
       , 'clientPublicKey')

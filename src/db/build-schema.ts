@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import
   { blob
+  , check
   , foreignKey
   , index
   , integer
@@ -26,6 +27,7 @@ import
   , type RelationConfig
   , type TableDef
   } from './schema-types.ts'
+import { normalizeAccess } from './access.ts'
 
 const SYSTEM_SCHEMA_DIR = 'src/schema/system/'
 
@@ -122,26 +124,32 @@ const buildColumn =
     return builder
   }
 
+const relationFieldTypes =
+  { column: 'string'
+  , foreignKey: 'string'
+  , through: 'string'
+  , required: 'boolean'
+  , 'x-exposed': 'boolean'
+  , 'x-link-any': 'boolean'
+  } as const
+
 const validateRelation =
   (sourceTitle: string, label: string, relation: RelationConfig) => {
+    const fail =
+      (message: string) =>
+        new Error(`${sourceTitle}: relation "${label}" ${message}`)
+
     if (!relation || typeof relation !== 'object')
       throw new Error(`${sourceTitle}: relation "${label}" must be an object`)
     if (typeof relation.table !== 'string' || relation.table.length === 0)
-      throw new Error(`${sourceTitle}: relation "${label}" needs a table`)
+      throw fail('needs a table')
     if (relation.cardinality !== 'one' && relation.cardinality !== 'many')
-      throw new Error(`${sourceTitle}: relation "${label}" cardinality must be "one" or "many"`)
-    if (relation.column !== undefined && typeof relation.column !== 'string')
-      throw new Error(`${sourceTitle}: relation "${label}" column must be a string`)
-    if (relation.foreignKey !== undefined && typeof relation.foreignKey !== 'string')
-      throw new Error(`${sourceTitle}: relation "${label}" foreignKey must be a string`)
-    if (relation.through !== undefined && typeof relation.through !== 'string')
-      throw new Error(`${sourceTitle}: relation "${label}" through must be a string`)
-    if (relation.required !== undefined && typeof relation.required !== 'boolean')
-      throw new Error(`${sourceTitle}: relation "${label}" required must be a boolean`)
-    if (relation['x-exposed'] !== undefined
-        && typeof relation['x-exposed'] !== 'boolean')
-      throw new Error(
-        `${sourceTitle}: relation "${label}" x-exposed must be a boolean`)
+      throw fail('cardinality must be "one" or "many"')
+
+    for (const [field, type] of Object.entries(relationFieldTypes))
+      if ((relation as any)[field] !== undefined
+          && typeof (relation as any)[field] !== type)
+        throw fail(`${field} must be a ${type}`)
   }
 
 type TablePlan = Omit<TableDef, 'drizzleSchema'>
@@ -186,48 +194,43 @@ const buildTablePlan =
   (loaded: LoadedSchema): TablePlan => {
     const schema = loaded.schema
     const declared = Object.entries(schema.properties ?? {})
-    const injected = new Set<string>()
 
-    const findEntry =
-      (columnName: string) =>
-        declared.find(([key]) => snakeCase(key) === columnName)
+    const access = normalizeAccess(schema)
 
-    const idEntry = findEntry('id')
-    const updatedAtEntry = findEntry('updated_at')
-    const ownerEntry = findEntry('owner')
+    const systemColumns: [string, JSONSchemaProperty][] =
+      [ ['id', { type: 'string', format: 'uuid', 'x-primary': true }]
+      , ['updated_at', { type: 'string', format: 'date-time' }]
+      , [ 'owner'
+        , { type: 'string', format: 'uuid', description: 'Owner user id' }
+        ]
+      , ...(schema['x-exposed'] === false
+          ? []
+          : [ [ 'visibility'
+              , { type: 'string'
+                , enum: access.visibility
+                , default: access.defaultVisibility
+                , description: 'Who can read the row; only the owner can write it'
+                }
+              ] as [string, JSONSchemaProperty]
+            ])
+      ]
+    const isSystemKey =
+      (key: string) => systemColumns.some(([name]) => snakeCase(key) === name)
+
+    // System columns come first, taken from the schema when it declares them.
+    const orderedEntries =
+      [ ...systemColumns.map(
+          ([name, fallback]) =>
+            declared.find(([key]) => snakeCase(key) === name) ?? [name, fallback])
+      , ...declared.filter(([key]) => !isSystemKey(key))
+      ] as [string, JSONSchemaProperty][]
+    const injected =
+      new Set(
+        systemColumns
+          .map(([name]) => name)
+          .filter(name => !declared.some(([key]) => snakeCase(key) === name)))
 
     validateExposure(schema.title, schema['x-exposed'], 'table')
-
-    if (!idEntry) injected.add('id')
-    if (!updatedAtEntry) injected.add('updated_at')
-    if (!ownerEntry) injected.add('owner')
-
-    const orderedEntries: [string, JSONSchemaProperty][] = []
-    if (idEntry)
-      orderedEntries.push(idEntry)
-    else
-      orderedEntries.push(
-        ['id', { type: 'string', format: 'uuid', 'x-primary': true }])
-    if (updatedAtEntry)
-      orderedEntries.push(updatedAtEntry)
-    else
-      orderedEntries.push(['updated_at', { type: 'string', format: 'date-time' }])
-    if (ownerEntry)
-      orderedEntries.push(ownerEntry)
-    else
-      orderedEntries.push(
-        [ 'owner'
-        , { type: 'string'
-          , format: 'uuid'
-          , description: 'Owner user id'
-          }
-        ])
-
-    for (const entry of declared)
-      if (entry[0] !== idEntry?.[0]
-          && entry[0] !== updatedAtEntry?.[0]
-          && entry[0] !== ownerEntry?.[0])
-        orderedEntries.push(entry)
 
     const requiredNames = new Set((schema.required ?? []).map(snakeCase))
     const columns: ColumnDef[] =
@@ -238,6 +241,7 @@ const buildTablePlan =
           requiredNames.has(columnName)
           || columnName === 'id'
           || columnName === 'updated_at'
+          || columnName === 'visibility'
         return (
           { key
           , columnName
@@ -264,6 +268,10 @@ const buildTablePlan =
     const relations = schema['x-relations'] ?? {}
     for (const [label, relation] of Object.entries(relations))
       validateRelation(schema.title, label, relation)
+
+    if (access.inherit && relations[access.inherit]?.cardinality !== 'one')
+      throw new Error(
+        `${schema.title}: x-access inherit "${access.inherit}" must name a to-one relation`)
 
     const foreignKeys: ForeignKeyDef[] = []
     for (const [label, relation] of Object.entries(relations)) {
@@ -302,6 +310,7 @@ const buildTablePlan =
               && loaded.importPath.startsWith(SYSTEM_SCHEMA_DIR))
       , derived: loaded.source === DERIVED_SOURCE
       , exposed: schema['x-exposed'] !== false
+      , access
       , relations
       , foreignKeys
       , uniqueConstraints
@@ -395,6 +404,20 @@ const createDrizzleTable =
         if (foreignKeyDef.onUpdate) builder.onUpdate(foreignKeyDef.onUpdate)
         extras.push(builder)
       }
+
+      const visibility = plan.columns.find(x => x.columnName === 'visibility')
+      if (visibility)
+        extras.push(
+          check(
+            `${plan.tableName}_visibility_check`
+            , sql.raw(
+                `\`visibility\` IN (${plan.access.visibility.map(x => `'${x}'`).join(', ')})`)))
+
+      const checks = plan.schema['x-checks'] ?? []
+      if (!Array.isArray(checks) || checks.some(x => typeof x !== 'string'))
+        throw new Error(`${plan.schema.title}: x-checks must be a list of SQL expressions`)
+      checks.forEach((expression, i) =>
+        extras.push(check(`${plan.tableName}_check_${i}`, sql.raw(expression))))
 
       for (const constraint of plan.uniqueConstraints) {
         const args =

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "name": "resource-server",
+  "goal": "Turn a folder of JSON Schema files into a secured backend: idempotently generated Turso/SQLite tables, relations and views, OPAQUE registration and login, owner/visibility/share authorization, and a JSON:API served by Hono, so that other projects need far less backend code.",
+  "scope": {
+    "in": [],
+    "out": []
+  },
+  "software": {
+    "languages": [
+      "TypeScript"
+    ],
+    "runtime": "bun",
+    "packageManager": "bun",
+    "frameworks": [
+      "Hono"
+    ],
+    "testCommand": "bun test",
+    "buildCommand": ""
+  },
+  "design": {
+    "summary": "JSON Schema (with x-relations, x-access and related extensions) is the only source of truth for the database. The owner of a row is its signed-in creator; read access is a separate per-row visibility (private by default) with optional read/write shares to users and groups; request signing is opt-in per resource. See README Goals and Access control.",
+    "principles": [
+      "Prefer small, focused modules with clear boundaries.",
+      "Keep behavior covered by tests and measurable with maid metrics and gates.",
+      "Avoid unnecessary dependencies; justify additions."
+    ],
+    "architecture": ""
+  },
+  "constraints": [],
+  "bestPractices": {
+    "commits": "Make small, atomic commits. Use an imperative subject line (72 characters or fewer) and explain why in the body. Run tests and `maid gate` before committing. Capture a pending snapshot before a commit and finalize after.",
+    "formatting": "Run `maid format` and `maid check`; Biome is the source of truth for formatting.",
+    "testing": "Keep the full test suite passing and add or update tests for behavior changes.",
+    "documentation": "Update README or docs for user-visible or workflow changes."
+  },
+  "createdAt": "2026-11-09T16:35:14.322Z",
+  "updatedAt": "2026-11-09T16:35:14.322Z"
+}

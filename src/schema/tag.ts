@@ -4,6 +4,7 @@ export const tagSchema =
   , type: "object"
   , additionalProperties: false
   , description: "Tag"
+  , "x-access": { "read": "public" }
   , properties:
     { name:
       { description: "name"

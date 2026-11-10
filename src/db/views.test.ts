@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { buildSchema } from './build-schema.ts'
+import { buildViews } from './views.ts'
 import
   { pascalCase
   , snakeCase
@@ -95,5 +96,35 @@ describe('buildViews', () => {
   test('embeds json columns as json values in nested objects', () => {
     const sql = built.views.article_view!.sql
     expect(sql).toContain("'metadata', json(`r`.`metadata`)")
+  })
+})
+
+describe('self-referential many-to-many', () => {
+  const selfBuilt = buildSchema(
+    [ loadedSchema(
+        { title: 'Person'
+        , type: 'object'
+        , properties: { name: { type: 'string' } }
+        , 'x-relations':
+          { friends: { table: 'person', column: 'id', cardinality: 'many' }
+          , blocked: { table: 'person', column: 'id', cardinality: 'many' }
+          }
+        })
+    ])
+
+  test('derives one join table per relation with distinct side columns', () => {
+    const names = selfBuilt.orderedTables.map(x => x.tableName).sort()
+    expect(names).toContain('person_friends')
+    expect(names).toContain('person_blocked')
+
+    const join = selfBuilt.orderedTables.find(x => x.tableName === 'person_friends')!
+    expect(join.foreignKeys.slice(0, 2).map(x => x.columns[0])).toEqual(
+      ['person_id', 'related_person_id'])
+  })
+
+  test('view joins the source column to the target column', () => {
+    const sql = buildViews(selfBuilt).person_view!.sql
+    expect(sql).toContain('`j`.`related_person_id` = `r`.`id`')
+    expect(sql).toContain('`j`.`person_id` = `t`.`id`')
   })
 })

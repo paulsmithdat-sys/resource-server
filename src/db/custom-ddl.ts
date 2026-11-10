@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeIfChanged } from './fs.ts'
 import type { BuiltSchema } from './schema-types.ts'
 
 export type CustomDdlEntry =
@@ -59,11 +59,9 @@ export const readCustomDdlState =
 
 export const writeCustomDdlState =
   async (path: string, state: CustomDdlState) => {
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(
+    await writeIfChanged(
       path
-      , JSON.stringify({ version: 1, hashes: sortHashes(state.hashes) }, null, 2) + '\n'
-      , 'utf8')
+      , JSON.stringify({ version: 1, hashes: sortHashes(state.hashes) }, null, 2) + '\n')
   }
 
 export const stateFromEntries =

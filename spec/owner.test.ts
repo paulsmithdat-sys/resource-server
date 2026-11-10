@@ -59,56 +59,18 @@ describe('owner', () => {
     expect(tag.attributes.owner).toBeNull()
   })
 
-  test('accepts an existing user id', async () => {
+  test('ignores an owner id sent by the client', async () => {
     const { app } = await createTestServer()
     const user =
       await createUser(
-        app
-        , { username: 'alice'
-          , email: 'alice@example.com'
-          , display_name: 'Alice'
-          })
+        app, { username: 'alice', email: 'alice@example.com' })
 
-    const response =
-      await createTag(
-        app, { name: 'owned', kind: 'topic', owner: user.id })
-
-    expect(response.status).toBe(201)
-    const tag = await documentOf(response)
-    expect(tag.attributes.owner).toBe(user.id)
-
-    const read = await app.request(`/tag/${tag.id}`)
-    expect((await read.json() as any).data.attributes.owner).toBe(user.id)
-  })
-
-  test('rejects groups, unknown users, and malformed ids', async () => {
-    const { app } = await createTestServer()
-    const group = await createGroup(app, 'editors')
-
-    const groupOwner =
-      await createTag(
-        app, { name: 'group-owned', kind: 'topic', owner: group.id })
-    expect(groupOwner.status).toBe(400)
-    expect((await groupOwner.json() as any).errors[0].source.parameter)
-      .toBe('data.attributes.owner')
-
-    const unknownOwner =
-      await createTag(
-        app
-        , { name: 'unknown-owned'
-          , kind: 'topic'
-          , owner: Bun.randomUUIDv7()
-          })
-    expect(unknownOwner.status).toBe(400)
-    expect((await unknownOwner.json() as any).errors[0].source.parameter)
-      .toBe('data.attributes.owner')
-
-    const malformed =
-      await createTag(
-        app, { name: 'malformed-owned', kind: 'topic', owner: 'alice' })
-    expect(malformed.status).toBe(400)
-    expect((await malformed.json() as any).errors[0].source.parameter)
-      .toBe('data.attributes.owner')
+    for (const owner of [user.id, Bun.randomUUIDv7()]) {
+      const response =
+        await createTag(app, { name: `t-${String(owner)}`, kind: 'topic', owner })
+      expect(response.status).toBe(201)
+      expect((await documentOf(response)).attributes.owner).toBeNull()
+    }
   })
 
   test('enforces the owner FK to user at the database level', async () => {
@@ -126,40 +88,20 @@ describe('owner', () => {
   })
 
   test('is set to null when the owning user is deleted', async () => {
-    const { app } = await createTestServer()
+    const { app, db } = await createTestServer()
     const user =
       await createUser(
         app, { username: 'alice', email: 'alice@example.com' })
     const tag = await documentOf(
-      await createTag(app, { name: 'owned', kind: 'topic', owner: user.id }))
+      await createTag(app, { name: 'owned', kind: 'topic' }))
+    await db.run(
+      'UPDATE `tag` SET `owner` = ? WHERE `id` = ?'
+      , [uuidToBuffer(user.id), uuidToBuffer(tag.id)])
 
     const removed = await app.request(`/user/${user.id}`, { method: 'DELETE' })
     expect(removed.status).toBe(204)
 
     const read = await app.request(`/tag/${tag.id}`)
     expect((await read.json() as any).data.attributes.owner).toBeNull()
-  })
-
-  test('supports self-referencing user owners', async () => {
-    const { app } = await createTestServer()
-    const alice =
-      await createUser(
-        app, { username: 'alice', email: 'alice@example.com' })
-    const bob =
-      await createUser(
-        app
-        , { username: 'bob'
-          , email: 'bob@example.com'
-          , owner: alice.id
-          })
-
-    expect(bob.attributes.owner).toBe(alice.id)
-
-    const removed = await app.request(`/user/${alice.id}`, { method: 'DELETE' })
-    expect(removed.status).toBe(204)
-
-    const read = await app.request(`/user/${bob.id}`)
-    const document = await read.json() as any
-    expect(document.data.attributes.owner).toBeNull()
   })
 })

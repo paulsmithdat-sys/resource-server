@@ -1,7 +1,10 @@
 import * as opaque from '@serenity-kit/opaque'
-import type { Row, RowDatabase } from '../server/database.ts'
+import type { RowDatabase } from '../server/database.ts'
+import { sessionKeyId } from './session-key.ts'
+import { createLimits, DEFAULT_LIMITS, type Limits } from './limits.ts'
 import { badRequest, conflict, notFound, unauthorized } from '../server/errors.ts'
-import { quoteIdentifier } from '../server/query.ts'
+import { isObject } from '../server/guard.ts'
+import { insert } from '../server/sql.ts'
 import { canonicalUuid, newUuid, uuidToBuffer } from '../server/uuid.ts'
 import
   { generateKeyPair
@@ -18,77 +21,20 @@ import
   , loginFinish
   } from './validation.ts'
 
-export const REGISTRATION_TTL_MS = 10 * 60 * 1000
-export const LOGIN_TTL_MS = 10 * 60 * 1000
-export const SESSION_TTL_MS = 24 * 60 * 60 * 1000
+const MINUTE = 60_000
+export const REGISTRATION_TTL_MS = 10 * MINUTE
+export const LOGIN_TTL_MS = 10 * MINUTE
+export const SESSION_TTL_MS = 24 * 60 * MINUTE
 
-type KeyType =
-  | 'jwk'
-  | 'opaque_registration'
-  | 'opaque_login_state'
-  | 'session'
-
-type PendingRegistration =
-  { username: string
-  , email: string
-  , displayName: string | null
-  , userId: string
-  }
-
-export type KeyStatus =
-  { id: string
-  , type: KeyType
-  , expiresAt: string | null
-  , consumedAt: string | null
-  , userId: string | null
-  }
-
-export type RegistrationStart =
-  { id: string
-  , type: 'opaque_registration'
-  , expiresAt: string
-  , registrationResponse: string
-  , serverPublicKey: PublicJwk
-  }
-
-export type RegistrationFinish =
-  { id: string
-  , type: 'opaque_registration'
-  , userId: string
-  , consumedAt: string
-  }
-
-export type LoginStart =
-  { id: string
-  , type: 'opaque_login_state'
-  , expiresAt: string
-  , loginResponse: string
-  , serverPublicKey: PublicJwk
-  }
-
-export type LoginFinish =
-  { sessionId: string
-  , type: 'session'
-  , expiresAt: string
-  , serverPublicKey: PublicJwk
-  }
+type KeyType = 'opaque_registration' | 'opaque_login_state' | 'session'
 
 export type AuthService =
-  { startRegistration: (body: unknown) => Promise<RegistrationStart>
-  , finishRegistration:
-      (id: string, body: unknown) => Promise<RegistrationFinish>
-  , startLogin: (body: unknown) => Promise<LoginStart>
-  , finishLogin: (id: string, body: unknown) => Promise<LoginFinish>
-  , finishKey:
-      (id: string, body: unknown) => Promise<RegistrationFinish | LoginFinish>
-  , getKey: (id: string) => Promise<KeyStatus>
+  { startRegistration: (body: unknown) => Promise<{ id: string }>
+  , startLogin: (body: unknown, client?: string) => Promise<{ id: string }>
+  , finishKey: (id: string, body: unknown) => Promise<unknown>
+  , getKey: (id: string) => Promise<unknown>
   , deleteKey: (id: string) => Promise<void>
-  , purgeExpired: () => Promise<void>
   }
-
-import { isObject } from '../server/guard.ts'
-
-
 
 const keyId =
   (value: string) => {
@@ -102,37 +48,43 @@ const keyId =
 const iso =
   (value: unknown) => {
     if (value === null || value === undefined) return null
-    const millis = typeof value === 'number' ? value : Number(value)
+    const millis = Number(value)
     return Number.isFinite(millis) ? new Date(millis).toISOString() : null
   }
 
-const parseStoredJson =
-  (value: unknown, label: string) => {
-    if (typeof value !== 'string')
-      throw new Error(`Stored ${label} is missing`)
+const json =
+  (value: unknown) =>
+    value === undefined ? null : JSON.stringify(value)
+
+const parseStored =
+  (value: unknown, label: string): unknown => {
     try {
-      return JSON.parse(value) as unknown
+      return JSON.parse(value as string)
     } catch {
-      throw new Error(`Stored ${label} is not valid JSON`)
+      throw new Error(`Stored ${label} is missing or invalid`)
     }
   }
 
-const parsePendingRegistration =
-  (value: unknown): PendingRegistration => {
-    const parsed = parseStoredJson(value, 'registration state')
-    if (!isObject(parsed)
-        || typeof parsed.username !== 'string'
-        || typeof parsed.email !== 'string'
-        || typeof parsed.userId !== 'string')
-      throw new Error('Stored registration state is invalid')
+const clientKey =
+  (body: Record<string, unknown>): PublicJwk => {
+    try {
+      return parsePublicJwk(body.clientPublicKey)
+    } catch (error) {
+      throw badRequest(
+        error instanceof Error
+          ? error.message
+          : 'clientPublicKey must be an Ed25519 public JWK'
+        , 'clientPublicKey')
+    }
+  }
 
-    return (
-      { username: parsed.username
-      , email: parsed.email
-      , displayName:
-          typeof parsed.displayName === 'string' ? parsed.displayName : null
-      , userId: parsed.userId
-      })
+const opaqueStep =
+  <T>(field: string, step: () => T): T => {
+    try {
+      return step()
+    } catch {
+      throw badRequest(`"${field}" is invalid`, field)
+    }
   }
 
 const mapWriteError =
@@ -146,137 +98,136 @@ const mapWriteError =
   }
 
 const inTransaction =
-  async <T>(
-    db: RowDatabase,
-    fn: (db: RowDatabase) => Promise<T>): Promise<T> => {
-    if (db.transaction) return await db.transaction(fn)
-    return await fn(db)
-  }
+  <T>(db: RowDatabase, fn: (db: RowDatabase) => Promise<T>): Promise<T> =>
+    db.transaction ? db.transaction(fn) : fn(db)
 
 export const createAuthService =
-  ( options:
-    { db: RowDatabase
-    , serverSetup: string
-    }): AuthService => {
-    const { db, serverSetup } = options
-
-    const purgeExpired =
-      async () => {
-        await db.run(
-          `DELETE FROM ${quoteIdentifier('key')}`
-          + ` WHERE ${quoteIdentifier('expires_at')} IS NOT NULL`
-          + ` AND ${quoteIdentifier('expires_at')} <= ?`
-          , [Date.now()])
+  ( { db, serverSetup, limits = DEFAULT_LIMITS, audit = false }:
+      { db: RowDatabase, serverSetup: string, limits?: Limits, audit?: boolean }
+  ): AuthService => {
+    const record =
+      async (action: string, user: unknown) => {
+        // Purpose: write a login event to audit_log when auditing is available
+        if (audit)
+          await insert(
+            db, 'audit_log', { actor: user ?? null, action, resource: 'session' })
       }
 
+    const throttle = createLimits(db, limits)
+    const purgeExpired =
+      () =>
+        db.run(
+          'DELETE FROM `key` WHERE `expires_at` IS NOT NULL AND `expires_at` <= ?'
+          , [Date.now()])
+
     const insertKey =
-      async (
-        tx: RowDatabase,
-        row:
-          { id: string
-          , type: KeyType
+      (tx: RowDatabase
+      , row:
+          { type: KeyType
+          , id: string
           , jwk?: unknown
           , clientJwk?: unknown
           , material?: string
-          , expiresAt?: number | null
+          , expiresAt?: number
           , userId?: string | null
+          , keyBuffer?: Uint8Array
           }) => {
-        const userId = row.userId ?? null
-        await tx.run(
-          `INSERT INTO ${quoteIdentifier('key')}`
-          + ` (${quoteIdentifier('id')}`
-          + `, ${quoteIdentifier('type')}`
-          + `, ${quoteIdentifier('jwk')}`
-          + `, ${quoteIdentifier('client_jwk')}`
-          + `, ${quoteIdentifier('material')}`
-          + `, ${quoteIdentifier('expires_at')}`
-          + `, ${quoteIdentifier('user_id')}`
-          + `, ${quoteIdentifier('owner')})`
-          + ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          , [ uuidToBuffer(row.id)
+        const user = row.userId ? uuidToBuffer(row.userId) : null
+        return tx.run(
+          'INSERT INTO `key` (`id`, `type`, `jwk`, `client_jwk`, `material`,'
+          + ' `expires_at`, `user_id`, `owner`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          , [ row.keyBuffer ?? uuidToBuffer(row.id)
             , row.type
-            , row.jwk === undefined ? null : JSON.stringify(row.jwk)
-            , row.clientJwk === undefined ? null : JSON.stringify(row.clientJwk)
+            , json(row.jwk)
+            , json(row.clientJwk)
             , row.material ?? null
             , row.expiresAt ?? null
-            , userId === null ? null : uuidToBuffer(userId)
-            , userId === null ? null : uuidToBuffer(userId)
+            , user
+            , user
             ])
       }
 
+    // Atomically marks an unexpired, unused state row consumed and returns it.
+    const consume =
+      async (
+        tx: RowDatabase,
+        type: KeyType,
+        id: Uint8Array,
+        now: number,
+        columns: string) => {
+        const row =
+          await tx.get(
+            'UPDATE `key` SET `consumed_at` = ? WHERE `id` = ? AND `type` = ?'
+            + ' AND `consumed_at` IS NULL AND `expires_at` IS NOT NULL'
+            + ` AND \`expires_at\` > ? RETURNING ${columns}`
+            , [now, id, type, now])
+        if (!row)
+          throw unauthorized(
+            `${type === 'session' ? 'Session' : type === 'opaque_login_state' ? 'Login' : 'Registration'}`
+            + ' state is invalid, expired, or already used')
+        return row
+      }
+
     const startRegistration =
-      async (raw: unknown): Promise<RegistrationStart> => {
+      async (raw: unknown) => {
         await opaque.ready
         const body = validate(registrationStart, raw)
-        const username = body.username as string
-        const email = body.email as string
-        const displayName =
-          typeof body.displayName === 'string' && body.displayName.length > 0
-            ? body.displayName
-            : null
-        const registrationRequest = body.registrationRequest as string
-        let publicJwk: PublicJwk
-        try {
-          publicJwk = parsePublicJwk(body.clientPublicKey)
-        } catch (error) {
-          throw badRequest(
-            error instanceof Error ? error.message : 'clientPublicKey must be an Ed25519 public JWK'
-            , 'clientPublicKey')
-        }
+        const username = (body.username as string).toLowerCase()
+        const email = (body.email as string).toLowerCase()
+        const publicJwk = clientKey(body)
 
         await purgeExpired()
 
-        const existing =
-          await db.get(
-            `SELECT 1 AS found FROM ${quoteIdentifier('user')}`
-            + ` WHERE ${quoteIdentifier('username')} = ?`
-            + ` OR ${quoteIdentifier('email')} = ? LIMIT 1`
-            , [username, email])
-        if (existing)
+        if (await db.get(
+          'SELECT 1 FROM `user` WHERE lower(`username`) = ? OR lower(`email`) = ? LIMIT 1'
+          , [username, email]))
           throw conflict('A user with that username or email already exists')
 
         const userId = newUuid()
-        const keyIdValue = newUuid()
+        const id = newUuid()
         const expiresAt = Date.now() + REGISTRATION_TTL_MS
-        const serverKeyPair = generateKeyPair()
-
         const { registrationResponse } =
-          opaque.server.createRegistrationResponse(
-            { serverSetup
-            , userIdentifier: userId
-            , registrationRequest
-            })
-
-        const pending: PendingRegistration =
-          { username
-          , email
-          , displayName
-          , userId
-          }
+          opaqueStep(
+            'registrationRequest'
+            , () =>
+                opaque.server.createRegistrationResponse(
+                  { serverSetup
+                  , userIdentifier: userId
+                  , registrationRequest: body.registrationRequest as string
+                  }))
 
         await insertKey(
           db
-          , { id: keyIdValue
+          , { id
             , type: 'opaque_registration'
             , jwk: publicJwk
-            , material: JSON.stringify(pending)
             , expiresAt
+            , material:
+                JSON.stringify(
+                  { username
+                  , email
+                  , displayName:
+                      typeof body.displayName === 'string'
+                      && body.displayName.length > 0
+                        ? body.displayName
+                        : null
+                  , userId
+                  })
             })
 
         return (
-          { id: keyIdValue
+          { id
           , type: 'opaque_registration'
-          , expiresAt: iso(expiresAt)!
+          , expiresAt: iso(expiresAt)
           , registrationResponse
-          , serverPublicKey: serverKeyPair.publicJwk
+          , serverPublicKey: generateKeyPair().publicJwk
           })
       }
 
     const finishRegistration =
-      async (id: string, raw: unknown): Promise<RegistrationFinish> => {
+      async (id: string, raw: unknown) => {
         await opaque.ready
-        const body = validate(registrationFinish, raw)
-        const registrationRecord = body.registrationRecord as string
+        const { registrationRecord } = validate(registrationFinish, raw)
         const idValue = keyId(id)
 
         return await inTransaction(
@@ -284,129 +235,109 @@ export const createAuthService =
           , async tx => {
               const now = Date.now()
               const consumed =
-                await tx.get(
-                  `UPDATE ${quoteIdentifier('key')}`
-                  + ` SET ${quoteIdentifier('consumed_at')} = ?`
-                  + ` WHERE ${quoteIdentifier('id')} = ?`
-                  + ` AND ${quoteIdentifier('type')} = 'opaque_registration'`
-                  + ` AND ${quoteIdentifier('consumed_at')} IS NULL`
-                  + ` AND ${quoteIdentifier('expires_at')} IS NOT NULL`
-                  + ` AND ${quoteIdentifier('expires_at')} > ?`
-                  + ` RETURNING ${quoteIdentifier('material')}`
-                  , [now, idValue, now])
+                await consume(
+                  tx, 'opaque_registration', idValue, now, '`material`')
+              const pending = parseStored(consumed.material, 'registration state')
+              if (!isObject(pending)
+                  || ['username', 'email', 'userId']
+                      .some(key => typeof pending[key] !== 'string'))
+                throw new Error('Stored registration state is invalid')
 
-              if (!consumed)
-                throw unauthorized(
-                  'Registration state is invalid, expired, or already used')
+              // Reject unusable records now; the throw rolls the consume back.
+              opaqueStep(
+                'registrationRecord'
+                , () =>
+                    opaque.server.startLogin(
+                      { serverSetup
+                      , registrationRecord: registrationRecord as string
+                      , startLoginRequest:
+                          opaque.client.startLogin({ password: 'probe' })
+                            .startLoginRequest
+                      , userIdentifier: newUuid()
+                      }))
 
-              const pending = parsePendingRegistration(consumed.material)
-              const userId = pending.userId
-
+              const userId = uuidToBuffer(pending.userId as string)
               try {
                 await tx.run(
-                  `INSERT INTO ${quoteIdentifier('user')}`
-                  + ` (${quoteIdentifier('id')}`
-                  + `, ${quoteIdentifier('username')}`
-                  + `, ${quoteIdentifier('email')}`
-                  + `, ${quoteIdentifier('display_name')}`
-                  + `, ${quoteIdentifier('owner')})`
-                  + ' VALUES (?, ?, ?, ?, ?)'
-                  , [ uuidToBuffer(userId)
+                  'INSERT INTO `user` (`id`, `username`, `email`, `display_name`,'
+                  + ' `owner`) VALUES (?, ?, ?, ?, ?)'
+                  , [ userId
                     , pending.username
                     , pending.email
-                    , pending.displayName
-                    , uuidToBuffer(userId)
+                    , typeof pending.displayName === 'string'
+                        ? pending.displayName
+                        : null
+                    , userId
                     ])
               } catch (error) {
                 throw mapWriteError(error)
               }
 
               await tx.run(
-                `UPDATE ${quoteIdentifier('key')}`
-                + ` SET ${quoteIdentifier('material')} = ?`
-                + `, ${quoteIdentifier('user_id')} = ?`
-                + `, ${quoteIdentifier('owner')} = ?`
-                + `, ${quoteIdentifier('expires_at')} = NULL`
-                + `, ${quoteIdentifier('consumed_at')} = ?`
-                + ` WHERE ${quoteIdentifier('id')} = ?`
-                , [ registrationRecord
-                  , uuidToBuffer(userId)
-                  , uuidToBuffer(userId)
-                  , now
-                  , idValue
-                  ])
+                'UPDATE `key` SET `material` = ?, `user_id` = ?, `owner` = ?,'
+                + ' `expires_at` = NULL, `consumed_at` = ? WHERE `id` = ?'
+                , [registrationRecord, userId, userId, now, idValue])
 
               return (
                 { id
                 , type: 'opaque_registration'
-                , userId
-                , consumedAt: iso(now)!
+                , userId: pending.userId
+                , consumedAt: iso(now)
                 })
             })
       }
 
     const startLogin =
-      async (raw: unknown): Promise<LoginStart> => {
+      async (raw: unknown, client = 'unknown') => {
         await opaque.ready
         const body = validate(loginStart, raw)
-        const username = body.username as string
-        const startLoginRequest = body.startLoginRequest as string
-        let publicJwk: PublicJwk
-        try {
-          publicJwk = parsePublicJwk(body.clientPublicKey)
-        } catch (error) {
-          throw badRequest(
-            error instanceof Error ? error.message : 'clientPublicKey must be an Ed25519 public JWK'
-            , 'clientPublicKey')
-        }
+        // Only needed for x-access "signed" resources, so it is optional.
+        const publicJwk =
+          body.clientPublicKey === undefined ? undefined : clientKey(body)
+        const username = (body.username as string).toLowerCase()
+        await throttle.start(username, client)
 
         await purgeExpired()
 
+        // Unknown users and users without a finished registration get the same
+        // response shape, so the start step does not reveal who exists.
         const user =
           await db.get(
-            `SELECT ${quoteIdentifier('id')} FROM ${quoteIdentifier('user')}`
-            + ` WHERE ${quoteIdentifier('username')} = ? LIMIT 1`
+            'SELECT `id` FROM `user` WHERE lower(`username`) = ? LIMIT 1'
             , [username])
+        const record =
+          user
+            ? await db.get(
+                'SELECT `material` FROM `key` WHERE `user_id` = ?'
+                + " AND `type` = 'opaque_registration'"
+                + ' AND `consumed_at` IS NOT NULL AND `expires_at` IS NULL'
+                + ' AND `material` IS NOT NULL'
+                + ' ORDER BY `consumed_at` DESC LIMIT 1'
+                , [user.id])
+            : undefined
+        const userId =
+          typeof record?.material === 'string'
+            ? canonicalUuid(user!.id)
+            : null
 
-        let userId: string | null = null
-        let registrationRecord: string | null = null
-
-        if (user) {
-          const candidate = canonicalUuid(user.id)
-          const record =
-            await db.get(
-              `SELECT ${quoteIdentifier('material')}`
-              + ` FROM ${quoteIdentifier('key')}`
-              + ` WHERE ${quoteIdentifier('user_id')} = ?`
-              + ` AND ${quoteIdentifier('type')} = 'opaque_registration'`
-              + ` AND ${quoteIdentifier('consumed_at')} IS NOT NULL`
-              + ` AND ${quoteIdentifier('expires_at')} IS NULL`
-              + ` AND ${quoteIdentifier('material')} IS NOT NULL`
-              + ` ORDER BY ${quoteIdentifier('consumed_at')} DESC LIMIT 1`
-              , [uuidToBuffer(candidate)])
-
-          if (typeof record?.material === 'string') {
-            userId = candidate
-            registrationRecord = record.material
-          }
-        }
-
-        const userIdentifier = userId ?? newUuid()
         const { loginResponse, serverLoginState } =
-          opaque.server.startLogin(
-            { serverSetup
-            , registrationRecord
-            , startLoginRequest
-            , userIdentifier
-            })
+          opaqueStep(
+            'startLoginRequest'
+            , () =>
+                opaque.server.startLogin(
+                  { serverSetup
+                  , registrationRecord: userId ? record!.material as string : null
+                  , startLoginRequest: body.startLoginRequest as string
+                  , userIdentifier: userId ?? newUuid()
+                  }))
 
-        const keyIdValue = newUuid()
+        const id = newUuid()
         const expiresAt = Date.now() + LOGIN_TTL_MS
         const serverKeyPair = generateKeyPair()
 
         await insertKey(
           db
-          , { id: keyIdValue
+          , { id
             , type: 'opaque_login_state'
             , jwk: serverKeyPair.privateJwk
             , clientJwk: publicJwk
@@ -414,161 +345,131 @@ export const createAuthService =
             , expiresAt
             , userId
             })
+        await throttle.track(id, username)
 
         return (
-          { id: keyIdValue
+          { id
           , type: 'opaque_login_state'
-          , expiresAt: iso(expiresAt)!
+          , expiresAt: iso(expiresAt)
           , loginResponse
           , serverPublicKey: serverKeyPair.publicJwk
           })
       }
 
     const finishLogin =
-      async (id: string, raw: unknown): Promise<LoginFinish> => {
+      async (id: string, raw: unknown) => {
         await opaque.ready
-        const body = validate(loginFinish, raw)
-        const finishLoginRequest = body.finishLoginRequest as string
+        const { finishLoginRequest } = validate(loginFinish, raw)
         const idValue = keyId(id)
+        const now = Date.now()
 
-        return await inTransaction(
-          db
-          , async tx => {
-              const now = Date.now()
-              const login =
-                await tx.get(
-                  `UPDATE ${quoteIdentifier('key')}`
-                  + ` SET ${quoteIdentifier('consumed_at')} = ?`
-                  + ` WHERE ${quoteIdentifier('id')} = ?`
-                  + ` AND ${quoteIdentifier('type')} = 'opaque_login_state'`
-                  + ` AND ${quoteIdentifier('consumed_at')} IS NULL`
-                  + ` AND ${quoteIdentifier('expires_at')} IS NOT NULL`
-                  + ` AND ${quoteIdentifier('expires_at')} > ?`
-                  + ` RETURNING ${quoteIdentifier('user_id')}`
-                  + `, ${quoteIdentifier('material')}`
-                  + `, ${quoteIdentifier('jwk')}`
-                  + `, ${quoteIdentifier('client_jwk')}`
-                  , [now, idValue, now])
+        // The state is consumed first and never restored, so a failed finish
+        // cannot be retried against the same login state.
+        const login =
+          await consume(
+            db
+            , 'opaque_login_state'
+            , idValue
+            , now
+            , '`user_id`, `material`, `jwk`, `client_jwk`')
 
-              if (!login)
-                throw unauthorized(
-                  'Login state is invalid, expired, or already used')
-
-              if (login.user_id === null || login.user_id === undefined)
-                throw unauthorized('Invalid username or password')
-
-              let sessionKey: string
-              try {
-                sessionKey =
-                  opaque.server.finishLogin(
+        const sessionKey =
+          login.user_id
+            ? (() => {
+                try {
+                  return opaque.server.finishLogin(
                     { serverLoginState: String(login.material)
-                    , finishLoginRequest
+                    , finishLoginRequest: finishLoginRequest as string
                     }).sessionKey
-              } catch {
-                throw unauthorized('Invalid username or password')
-              }
+                } catch {
+                  return undefined
+                }
+              })()
+            : undefined
+        if (!sessionKey) {
+          await throttle.fail(id.toLowerCase())
+          await record('login_failed', login.user_id)
+          throw unauthorized('Invalid username or password')
+        }
+        await throttle.succeed(id.toLowerCase())
+        await record('login', login.user_id)
 
-              if (typeof sessionKey !== 'string' || sessionKey.length === 0)
-                throw unauthorized('Invalid username or password')
+        const privateJwk =
+          parsePrivateJwk(parseStored(login.jwk, 'login server key'))
+        // A v4 UUID (122 random bits) is the bearer token; only its hash is stored.
+        const sessionId = crypto.randomUUID()
+        const expiresAt = now + SESSION_TTL_MS
 
-              const privateJwk = parsePrivateJwk(
-                parseStoredJson(login.jwk, 'login server key'))
-              const clientJwk = parsePublicJwk(
-                parseStoredJson(login.client_jwk, 'login client key'))
-              const userId = canonicalUuid(login.user_id)
-              const sessionId = newUuid()
-              const expiresAt = now + SESSION_TTL_MS
-
-              await insertKey(
-                tx
-                , { id: sessionId
-                  , type: 'session'
-                  , jwk: privateJwk
-                  , clientJwk
-                  , material: sessionKey
-                  , expiresAt
-                  , userId
-                  })
-
-              return (
-                { sessionId
-                , type: 'session'
-                , expiresAt: iso(expiresAt)!
-                , serverPublicKey: publicJwkFromPrivate(privateJwk)
-                })
+        await insertKey(
+          db
+          , { id: sessionId
+            , keyBuffer: sessionKeyId(sessionId)
+            , type: 'session'
+            , jwk: privateJwk
+            , clientJwk:
+                login.client_jwk
+                  ? parsePublicJwk(parseStored(login.client_jwk, 'login client key'))
+                  : undefined
+            , material: sessionKey
+            , expiresAt
+            , userId: canonicalUuid(login.user_id)
             })
+
+        return (
+          { sessionId
+          , type: 'session'
+          , expiresAt: iso(expiresAt)
+          , serverPublicKey: publicJwkFromPrivate(privateJwk)
+          })
       }
 
     const finishKey =
-      async (id: string, raw: unknown) => {
+      (id: string, raw: unknown) => {
         if (!isObject(raw))
           throw badRequest('Request body must be a JSON object')
-        const body = raw as Record<string, unknown>
-        const hasRegistration = Object.hasOwn(body, 'registrationRecord')
-        const hasLogin = Object.hasOwn(body, 'finishLoginRequest')
 
-        if (hasRegistration && hasLogin)
+        const registration = Object.hasOwn(raw, 'registrationRecord')
+        const login = Object.hasOwn(raw, 'finishLoginRequest')
+        if (registration === login)
           throw badRequest(
-            'Provide either "registrationRecord" or "finishLoginRequest", not both')
+            registration
+              ? 'Provide either "registrationRecord" or "finishLoginRequest", not both'
+              : 'Request body must contain "registrationRecord" or "finishLoginRequest"')
 
-        if (hasRegistration) return await finishRegistration(id, body)
-        if (hasLogin) return await finishLogin(id, body)
-
-        throw badRequest(
-          'Request body must contain "registrationRecord" or "finishLoginRequest"')
+        return registration
+          ? finishRegistration(id, raw)
+          : finishLogin(id, raw)
       }
 
     const getKey =
-      async (id: string): Promise<KeyStatus> => {
+      async (id: string) => {
         const idValue = keyId(id)
         await purgeExpired()
 
-        const row: Row | undefined =
+        const row =
           await db.get(
-            `SELECT ${quoteIdentifier('id')}`
-            + `, ${quoteIdentifier('type')}`
-            + `, ${quoteIdentifier('expires_at')}`
-            + `, ${quoteIdentifier('consumed_at')}`
-            + `, ${quoteIdentifier('user_id')}`
-            + ` FROM ${quoteIdentifier('key')}`
-            + ` WHERE ${quoteIdentifier('id')} = ? LIMIT 1`
-            , [idValue])
-
+            'SELECT `id`, `type`, `expires_at`, `consumed_at`, `user_id`'
+            + ' FROM `key` WHERE `id` IN (?, ?) LIMIT 1'
+            , [idValue, sessionKeyId(id)])
         if (!row) throw notFound(`Key "${id}" was not found`)
 
         return (
-          { id: canonicalUuid(row.id)
-          , type: row.type as KeyType
+          { id: canonicalUuid(id)
+          , type: row.type
           , expiresAt: iso(row.expires_at)
           , consumedAt: iso(row.consumed_at)
-          , userId:
-              row.user_id === null || row.user_id === undefined
-                ? null
-                : canonicalUuid(row.user_id)
+          , userId: row.user_id ? canonicalUuid(row.user_id) : null
           })
       }
 
     const deleteKey =
-      async (id: string): Promise<void> => {
-        const idValue = keyId(id)
+      async (id: string) => {
         const result =
           await db.run(
-            `DELETE FROM ${quoteIdentifier('key')}`
-            + ` WHERE ${quoteIdentifier('id')} = ?`
-            , [idValue])
-
+            'DELETE FROM `key` WHERE `id` IN (?, ?)', [keyId(id), sessionKeyId(id)])
         if (result.changes === 0)
           throw notFound(`Key "${id}" was not found`)
       }
 
-    return (
-      { startRegistration
-      , finishRegistration
-      , startLogin
-      , finishLogin
-      , finishKey
-      , getKey
-      , deleteKey
-      , purgeExpired
-      })
+    return { startRegistration, startLogin, finishKey, getKey, deleteKey }
   }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildSchema } from './build-schema.ts'
 import { buildExportsSource, writeExports } from './generate-exports.ts'
@@ -51,7 +52,7 @@ describe('buildExportsSource', () => {
 
 describe('writeExports', () => {
   test('writes once and reports no change on the second run', async () => {
-    const dir = await mkdtemp('/tmp/opencode/serber-exports-')
+    const dir = await mkdtemp(join(tmpdir(), 'serber-exports-'))
     const path = join(dir, '.drizzleExports/index.ts')
 
     try {

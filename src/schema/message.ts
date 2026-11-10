@@ -1,0 +1,27 @@
+export const messageSchema =
+  { $schema: "https://json-schema.org/draft/2020-12/schema"
+  , title: "Message"
+  , type: "object"
+  , additionalProperties: false
+  , description: "A chat message: readable by everyone who can read its chat"
+  , "x-access": { inherit: "chat" }
+  , properties:
+    { text:
+      { description: "Message text"
+      , type: "string"
+      , minLength: 1
+      , maxLength: 4000
+      }
+    }
+  , required: ["text"]
+  , "x-relations":
+    { chat:
+      { table: "chat"
+      , column: "id"
+      , cardinality: "one"
+      , foreignKey: "chat_id"
+      , required: true
+      , onDelete: "cascade"
+      }
+    }
+  }

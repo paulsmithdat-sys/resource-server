@@ -1,6 +1,6 @@
 import { badRequest } from '../server/errors.ts'
 import { isObject } from '../server/guard.ts'
-import { ajv } from '../server/ajv.ts'
+import { ajv, errorField } from '../server/ajv.ts'
 
 type ValidateFn = (data: unknown) => boolean
 
@@ -24,7 +24,7 @@ const registrationStart = compile(
 const loginStart = compile(
   { type: 'object'
   , additionalProperties: false
-  , required: [ 'type', 'username', 'startLoginRequest', 'clientPublicKey' ]
+  , required: [ 'type', 'username', 'startLoginRequest' ]
   , properties:
     { type: { type: 'string' }
     , username: { type: 'string', minLength: 1, maxLength: 100 }
@@ -52,10 +52,7 @@ const loginFinish = compile(
 const validate =
   (validator: ValidateFn, body: unknown): Record<string, unknown> => {
     if (!validator(body)) {
-      const error = (validator as any).errors?.[0]
-      let field = error?.instancePath?.replace(/^\//, '')
-      if (!field && error?.params?.missingProperty) field = error.params.missingProperty
-      if (!field) field = 'body'
+      const field = errorField(validator, 'body')
       throw badRequest(`"${field}" is invalid`, field)
     }
     if (!isObject(body)) throw badRequest('Request body must be a JSON object')

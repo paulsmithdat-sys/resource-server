@@ -1,5 +1,7 @@
 import { Relator, Serializer } from 'ts-japi'
+import type { Row } from './database.ts'
 import type { Registry, RelationshipMeta, ResourceMeta } from './registry.ts'
+import type { RowReader } from './scope.ts'
 
 export type Serializers = Map<string, Serializer<Record<string, unknown>>>
 
@@ -29,9 +31,11 @@ const selectedRelationships =
   }
 
 const parseRelationValue =
-  (value: unknown, cardinality: RelationshipMeta['cardinality']) => {
+  async ( value: unknown
+  , relationship: RelationshipMeta
+  , read: RowReader) => {
+    // Purpose: decode an embedded relation, keeping only rows the viewer may read
     let parsed = value
-
     if (typeof parsed === 'string') {
       try {
         parsed = JSON.parse(parsed)
@@ -40,20 +44,23 @@ const parseRelationValue =
       }
     }
 
-    if (parsed === null || parsed === undefined)
-      return cardinality === 'many' ? [] : null
-
-    if (cardinality === 'many')
-      return Array.isArray(parsed) ? parsed : [parsed]
-
-    return Array.isArray(parsed) ? parsed[0] ?? null : parsed
+    const all =
+      parsed === null || parsed === undefined ? [] : [parsed].flat() as Row[]
+    const readable = await read(relationship.table, all)
+    // x-link-any relations (shares, group members) keep the ids of unreadable rows
+    const rows =
+      relationship.linkAny
+        ? all.map(x => readable.includes(x) ? x : { id: x.id })
+        : readable
+    return relationship.cardinality === 'many' ? rows : rows[0] ?? null
   }
 
 export const createSerializers =
   ( registry: Registry
   , fields: Map<string, Set<string>>
   , include: string[]
-  , primaryType: string): Serializers => {
+  , primaryType: string
+  , read: RowReader = async (_table, rows) => rows): Serializers => {
     const serializers: Serializers = new Map()
 
     for (const resource of registry.resources.values()) {
@@ -80,7 +87,7 @@ export const createSerializers =
         relators[label] =
           new Relator(
             async (row: Record<string, unknown>) =>
-              parseRelationValue(row[label], relationship.cardinality)
+              parseRelationValue(row[label], relationship, read)
             , target
             , { relatedName: label })
       }

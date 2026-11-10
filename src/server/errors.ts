@@ -16,22 +16,16 @@ export class ApiError extends Error {
   }
 }
 
-export const badRequest =
-  (detail: string, parameter?: string) =>
-    new ApiError(400, 'Bad Request', detail, parameter)
+const factory =
+  (status: number, title: string) =>
+    (detail: string, parameter?: string) =>
+      new ApiError(status, title, detail, parameter)
 
-export const notFound =
-  (detail: string) =>
-    new ApiError(404, 'Not Found', detail)
-
-export const unauthorized =
-  (detail: string) =>
-    new ApiError(401, 'Unauthorized', detail)
-
-export const conflict =
-  (detail: string) =>
-    new ApiError(409, 'Conflict', detail)
-
-export const forbidden =
-  (detail: string) =>
-    new ApiError(403, 'Forbidden', detail)
+export const badRequest = factory(400, 'Bad Request')
+export const unauthorized = factory(401, 'Unauthorized')
+export const forbidden = factory(403, 'Forbidden')
+export const notFound = factory(404, 'Not Found')
+export const conflict = factory(409, 'Conflict')
+export const tooManyRequests = factory(429, 'Too Many Requests')
+export const notAcceptable = factory(406, 'Not Acceptable')
+export const unsupportedMediaType = factory(415, 'Unsupported Media Type')

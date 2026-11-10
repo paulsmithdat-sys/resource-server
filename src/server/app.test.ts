@@ -155,8 +155,8 @@ describe('JSON:API application', () => {
     expect(countCall.params).toEqual(['Hello'])
 
     const listCall = calls.find(x => x.sql.startsWith('SELECT *'))!
-    expect(listCall.sql).toContain('WHERE `heading` = ?')
-    expect(listCall.sql).toContain('ORDER BY `heading` DESC')
+    expect(listCall.sql).toContain('WHERE (`article_view`.`heading` = ?)')
+    expect(listCall.sql).toContain("ORDER BY `article_view`.`heading` DESC")
     expect(listCall.params).toEqual(['Hello', 5, 5])
   })
 

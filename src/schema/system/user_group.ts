@@ -25,6 +25,7 @@ export const userGroupSchema =
       , column: "id"
       , cardinality: "many"
       , through: "user_group_membership"
+      , "x-link-any": true
       }
     }
   }

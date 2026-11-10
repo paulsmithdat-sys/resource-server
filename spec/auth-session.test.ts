@@ -1,3 +1,4 @@
+import { sessionKeyId } from '../src/auth/session-key.ts'
 import { describe, expect, test } from 'bun:test'
 import { SESSION_TTL_MS } from '../src/auth/service.ts'
 import { canonicalUuid, uuidToBuffer } from '../src/server/uuid.ts'
@@ -22,8 +23,8 @@ const keyRow =
   async (db: any, id: string): Promise<any> =>
     await db.get(
       'SELECT `type`, `jwk`, `client_jwk`, `material`, `expires_at`,'
-      + ' `consumed_at`, `user_id`, `owner` FROM `key` WHERE `id` = ?'
-      , [uuidToBuffer(id)])
+      + ' `consumed_at`, `user_id`, `owner` FROM `key` WHERE `id` IN (?, ?)'
+      , [uuidToBuffer(id), sessionKeyId(id)])
 
 const keyCount =
   async (db: any): Promise<number> => {
@@ -110,7 +111,7 @@ describe('sessions', () => {
 
     await db.run(
       'UPDATE `key` SET `expires_at` = ? WHERE `id` = ?'
-      , [Date.now() - 1, uuidToBuffer(sessionId)])
+      , [Date.now() - 1, sessionKeyId(sessionId)])
 
     const expired = await getKey(app, sessionId)
     expect(expired.response.status).toBe(404)
@@ -187,8 +188,8 @@ describe('sessions', () => {
     await db.run(
       'UPDATE `key` SET `expires_at` = ? WHERE `id` IN (?, ?)'
       , [ Date.now() - 1
-        , uuidToBuffer(first.finish.document.sessionId)
-        , uuidToBuffer(second.finish.document.sessionId)
+        , sessionKeyId(first.finish.document.sessionId)
+        , sessionKeyId(second.finish.document.sessionId)
         ])
 
     const before = await keyCount(db)

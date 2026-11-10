@@ -1,4 +1,4 @@
-# Serber
+# Schema Resource Server
 
 > A secure, declarative backend for vibe-coded applications.
 
@@ -40,110 +40,64 @@ The project is built on:
 
 ## Goals
 
-### 1. A declarative backend
+Serber is a Bun library and server that turns a folder of JSON Schema files into a complete, secured backend: Turso/SQLite tables, relations and views, registration and login, owner- and share-based authorization, and a JSON:API served by Hono. The aim is a strong, robust, standardized backend for reasonably small projects today, and larger ones later, so that applications built on it need far less backend code and start faster.
 
-JSON Schema is the single source of truth.
+### 1. JSON Schema is the only source of truth
 
-A schema file should be enough to define:
+Every change to the database is made in JSON Schema, using extensions where plain JSON Schema has no word for it. Nothing is hand-written SQL.
 
-- the table name, derived from the JSON Schema title;
-- columns and their SQLite types;
-- nullability, defaults, uniqueness, and primary keys;
-- one-to-one, one-to-many, and many-to-many relations;
-- join tables;
-- views that resolve foreign keys into actual data;
-- the JSON:API resource and its relationships.
+| Extension | What it declares |
+| --- | --- |
+| `x-relations` | one, one-to-many and many-to-many relations (including self-referential ones); join tables are derived automatically |
+| `x-access` | who may read and create, row visibility, sharing, and request signing (see [Access control](#access-control-x-access)) |
+| `x-exposed` | tables, columns and relations hidden from the API |
+| `x-unique`, `x-unique-constraints`, `x-primary` | keys and uniqueness |
 
-The generator derives the rest:
+From the schemas the generator derives tables and columns, foreign keys and indexes, join tables, share tables, CHECK constraints, `updated_at` triggers, per-table views with related rows embedded, migrations and API resources.
 
-- Drizzle table definitions;
-- Drizzle Kit migrations;
-- `updated_at` triggers;
-- join tables;
-- views;
-- typed runtime exports;
-- API resources.
+Initialization is **declarative and idempotent**: generating twice from the same schemas produces identical output and no new migration, and each migration only contains what changed.
 
-No hand-written CRUD backend should be required for a normal resource.
+### 2. A standard API
 
-### 2. A safe backend for AI-generated applications
+Resources are served as **JSON:API** over **Hono**: create, read, update, replace and delete, with filtering, sorting, sparse fieldsets, `include` of related resources, pagination and standard error objects. A client never needs to know the database layout.
 
-Vibe-coded applications often have a strong frontend and an improvised backend. That is where security, data integrity, and maintenance problems appear.
+### 3. Identity built in
 
-Serber is designed so that the AI model writes **only** JSON Schema files. Those files are:
+The scaffolding tables provide registration, login and sessions without application code:
 
-- small;
-- declarative;
-- easy to review;
-- validated before anything touches the database;
-- deterministic in what they generate.
+- **OPAQUE** password authentication, so the server never sees a password;
+- sessions that expire after 24 hours, whose bearer tokens are stored only as hashes;
+- case-insensitive usernames and emails;
+- login rate limiting and lockout after repeated failures, without revealing which accounts exist.
 
-The backend itself is generated from a small number of trusted, tested rules. The model does not write SQL, migrations, authentication code, or authorization checks.
+### 4. Ownership and access by default
 
-### 3. Security by default
+- The **owner** of a row is the user who was logged in when it was created. Clients can never set or change it. A row created without logging in has no owner.
+- Only the owner can update or delete a row, unless they share write access.
+- **Read access is separate from ownership.** Each row has a `visibility`: `private` (owner only, the default), `shared` (owner plus the users and groups it is shared with), `authenticated` (any signed-in user) or `public` (anyone, where the resource allows reads without a session). The owner chooses it on create or on any later update.
+- **Sharing**: an owner can grant read access, write access, or both to any user or group. Group members gain access immediately and lose it when removed.
+- Each resource declares in its schema whether reads and creates need a login. The default is that both do, and new rows are private: the note-taking model. A social-media style resource can make reads public and new posts public by default.
 
-The backend should be safe without requiring every frontend developer to become a security specialist.
+### 5. Stronger protection where it matters, without burdening every client
 
-The implemented security baseline includes:
+Request signing is off by default, because it puts real work on clients. A resource can require it for chosen operations (for example payments). Signed requests are Ed25519 signatures over the method, path, body, session, a timestamp and a nonce, and are protected against tampering and replay. Every other resource stays protected by the OPAQUE session alone.
 
-- **OPAQUE** for password-authenticated key exchange, so passwords are never sent to the server;
-- **tweetnacl** Ed25519 keypairs for registration and login flows;
-- **user-owned keys**, stored as JWK representations;
-- short-lived login state and 24-hour sessions with automatic purge;
-- group-based sharing built on multiple independently authorized keys;
-- centralized authorization checks rather than per-endpoint ad hoc logic.
+### 6. Less code and faster starts for other projects
 
-Phase 5 implements OPAQUE registration, login, and session records. Request
-signing, owner-based authorization, and group sharing are planned for Phase 6.
-The data model already reserves the tables and columns they need.
+An application built on Serber writes schema files instead of a backend: no CRUD handlers, migrations, authentication or authorization code. The library is tested as a whole (authorization isolation, sharing, signing, concurrency), so applications inherit that protection rather than re-implementing it.
 
-### 4. Token-efficient generation
+### 7. Auditable and reliable
 
-A model should not have to emit a full backend to add a resource.
+The code is kept small, dependency-light and covered by tests, so that the security rules every application relies on can be read and verified in one place.
 
-The intended workflow is:
+### Where it falls short today
 
-1. The model writes or edits a JSON Schema file.
-2. The generator validates it.
-3. The generator produces the table, relations, join tables, views, migration, and API resource.
-4. The frontend consumes the JSON:API contract.
-
-This makes AI-assisted backend development dramatically cheaper: the model writes tens of lines of schema instead of hundreds or thousands of lines of imperative code.
-
-### 5. Correct by construction
-
-The project should make invalid states difficult to represent.
-
-- Types flow from JSON Schema to Drizzle to the API.
-- Relations are explicit and validated against existing tables and columns.
-- Foreign keys are declared consistently.
-- Join tables are deduplicated.
-- Views are generated from the same relation metadata as the tables.
-- Migrations are deterministic and never silently rewritten after being applied.
-
-### 6. Operationally simple
-
-Serber should be easy to run locally and easy to deploy.
-
-- Turso/SQLite means no separate database server.
-- Drizzle Kit manages migrations.
-- Hono provides a small, portable HTTP layer.
-- The generated schema export can live in the repository or in a temporary directory.
-- The database file and migration history are ordinary files.
-
-### 7. Frontend-first API
-
-The frontend should not need to understand the database.
-
-The API should expose:
-
-- stable resource types;
-- JSON:API-compliant documents;
-- relationships and included resources;
-- pagination, sorting, filtering, and sparse fieldsets;
-- predictable error objects.
-
-A schema catalog endpoint should let a client discover the available resources and their relationships.
+- inherited access follows a to-one parent for reads only: a parent's owner cannot moderate (edit or delete) children they do not own;
+- the audit trail is append-only through the API, but not yet protected by database triggers;
+- `include` supports direct relationships only, not nested paths such as `include=tag.article`;
+- filters apply to a resource's own columns, not to fields of related resources;
+- relationship changes on shared rows require the writer to own the rows being linked;
+- no key rotation or revocation API.
 
 ---
 
@@ -156,7 +110,6 @@ For the current roadmap, Serber is **not**:
 - a cryptography library — it uses OPAQUE and tweetnacl rather than implementing primitives;
 - a multi-tenant platform by default;
 - a system where groups own keys — keys are owned by users for non-repudiation;
-- an early implementation of registration, login, key generation, or authorization;
 - a UI builder.
 
 Those may become later layers, but they are not part of the first milestones.
@@ -263,14 +216,14 @@ Every table, including join tables, receives:
 
 `created_at` is intentionally omitted: a UUIDv7 already carries a timestamp.
 
-`owner` records which user owns a row. It is exposed as a normal JSON:API
+`owner` records which user owns a row. It is exposed as a read-only JSON:API
 attribute, not as a relationship. It is always a foreign key to `user.id`, never
-to `user_group.id`. Writes reject group ids, unknown user ids, and malformed
-values. Deleting a user sets the row's owner to `null`. Because `user` is a
-table too, `user.owner` is a self-referencing foreign key.
+to `user_group.id`. The server sets it to the signed-in creator; values sent by
+clients are ignored, and rows created without a session have no owner. Deleting
+a user sets the row's owner to `null`. Because `user` is a table too,
+`user.owner` is a self-referencing foreign key.
 
-Authorization is not based on `owner` yet; owner-versus-other-user checks are
-deferred to Phase 6.
+`visibility` decides who can read a row; see [Access control](#access-control-x-access).
 
 ### System schemas
 
@@ -527,7 +480,7 @@ Examples:
 
 ### Deduplication
 
-If both sides declare the same many-to-many relation, only one join table is generated. Explicit `through` names win. Conflicting explicit names are an error. Self-referential many-to-many relations and cyclic foreign keys are rejected with a clear error until they are implemented.
+If both sides declare the same many-to-many relation, only one join table is generated. Explicit `through` names win. Conflicting explicit names are an error. A self-referential many-to-many relation (a table related to itself, e.g. `friends` on `person`) gets its own join table named `<table>_<label>` (override with `through`) with columns `<table>_id` (this side) and `related_<table>_id` (the target). It is directed: the relation lists rows where this row is on the `<table>_id` side, so symmetry (A friends B implies B friends A) is not automatic. Cyclic foreign keys are rejected with a clear error until they are implemented.
 
 ---
 
@@ -598,9 +551,15 @@ GET, HEAD /:type/:id     single resource
 PUT /:type/:id           replace a resource
 PATCH /:type/:id         update a resource
 DELETE /:type/:id        delete a resource
-OPTIONS /:type           advertised collection methods
-OPTIONS /:type/:id       advertised single-resource methods
+GET, HEAD /:type/:id/:rel                 related resource or collection
+GET, HEAD /:type/:id/relationships/:rel   relationship linkage
+PATCH /:type/:id/relationships/:rel       replace the relationship
+POST /:type/:id/relationships/:rel        add members (to-many)
+DELETE /:type/:id/relationships/:rel      remove members (to-many)
+OPTIONS on every path                     advertised methods
 ```
+
+Requests with a body must send `Content-Type: application/vnd.api+json` (otherwise `415`); an `Accept` header that only allows JSON:API with media type parameters gets `406`. Every document carries `jsonapi.version`, a top-level `links.self`, a `links.self` on each resource, `self` and `related` links on each relationship, and `first`, `last`, `prev` and `next` links on collections.
 
 Authentication has its own plain-JSON surface, registered before the generic
 resource routes:
@@ -651,7 +610,8 @@ Collections support:
 - `page[number]` — 1-based page number, default `1`;
 - `page[size]` — rows per page, default `20`, maximum `100`;
 - `sort` — comma-separated fields, prefix a field with `-` for descending order;
-- `filter[field]` — equality filter, repeatable for multiple `AND` conditions;
+- `filter[field]=value` — equality filter, repeatable for multiple `AND` conditions;
+- `filter[field][operator]=value` — `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `in` and `nin` (comma-separated values), `contains`, `starts`, `ends`, and `null` (`true` or `false`). Values are converted to the column's type and always passed as SQL parameters. JSON:API reserves the `filter` parameter but does not define operators, so this operator syntax is Serber's own convention;
 - `fields[type]` — comma-separated attributes and relationship labels for sparse fieldsets;
 - `include` — comma-separated relationship labels to add to the compound document.
 
@@ -662,8 +622,9 @@ Sorting and filtering only allow base view columns. Relationship labels are not 
 Relationship loading is deliberately limited for now:
 
 - `include` supports direct relationships of the primary resource;
-- nested paths such as `include=tag.articles` are not implemented;
-- included resources are serialized without relationships, so their `relationships` object is empty.
+- nested paths such as `include=tag.articles` are not implemented (they return `400`, as the specification requires for unsupported paths);
+- included resources are serialized without relationships, so their `relationships` object is empty;
+- related rows are only loaded in full for `include`d relationships; other relationships load just the ids needed for linkage, and relationships left out by `fields[type]` are not loaded at all.
 
 ### Documents
 
@@ -815,7 +776,7 @@ Implemented model:
 - keys can be long-term or session-scoped;
 - group sharing will later distribute multiple keys, each with separate authorization.
 
-Keys are owned by users, never by groups. This preserves the link between a signature and the identity that owned the key. Request signing itself is deferred to Phase 6.
+Keys are owned by users, never by groups. This preserves the link between a signature and the identity that owned the key. Request signing is available per resource through `x-access.signed`.
 
 ### Non-repudiation
 
@@ -830,16 +791,7 @@ This is why the default `Key.user` FK uses `onDelete: "restrict"` rather than ca
 
 ### Authorization and sharing
 
-Authorization is deferred. The future model will include:
-
-- groups as containers for roles and shares;
-- membership;
-- role assignments;
-- resource-level and row-level permissions;
-- multiple keys per user with independent authorization;
-- audit trails for sensitive actions.
-
-The current baseline only contains the structural tables needed for that model.
+Authorization is owner-based with per-row visibility and optional sharing to users and groups; see [Access control](#access-control-x-access). Roles, inherited access and audit trails are not implemented yet.
 
 ### Threat model
 
@@ -847,9 +799,9 @@ The current baseline only contains the structural tables needed for that model.
 | --- | --- | --- |
 | Plaintext password theft | OPAQUE, passwords never sent | Implemented |
 | Replay attacks | one-time consume, OPAQUE exchange, short-lived pending state | Implemented |
-| Session key theft | 24-hour sessions, delete endpoint, automatic purge | Implemented |
-| Forged signatures | tweetnacl keypairs and user-owned keys | Keypairs implemented; signing deferred |
-| Privilege escalation | centralized authorization checks | Phase 6 |
+| Session key theft | 24-hour sessions, tokens stored only as hashes, delete endpoint, automatic purge | Implemented |
+| Forged or replayed signed requests | Ed25519 signatures with timestamp and single-use nonce, per resource | Implemented (opt-in) |
+| Privilege escalation | centralized owner, visibility and share checks | Implemented |
 | SQL injection | Drizzle parameterization, no raw user SQL | Implemented |
 | Schema injection | AJV validation and an allowlisted keyword set | Phase 7 |
 | Migration corruption | immutable applied migrations, custom-DDL hashes | Implemented |
@@ -873,6 +825,8 @@ Running the generator twice with unchanged schemas must:
 ### Migration application
 
 Running the migration command twice must succeed without errors.
+
+The server applies pending migrations itself when it starts, using the same `__drizzle_migrations` record as `bun run db:migrate`, and refuses to start if one fails. Set `MIGRATE_ON_START=false` to apply migrations yourself. New migrations are only ever generated by `bun run db:generate`.
 
 Applied migrations are immutable. If a migration has already been recorded in `__drizzle_migrations`, the generator must never append to or rewrite it.
 
@@ -1046,19 +1000,21 @@ Exit criteria met:
 - expired and deleted sessions fail closed;
 - key status never exposes key material.
 
-Request signing and owner-based authorization remain in Phase 6.
+Owner-based authorization, visibility, sharing and opt-in request signing are implemented; see [Access control](#access-control-x-access).
 
 ### Phase 6 — Authorization and sharing
 
 **Goal:** enforce access control and group-based sharing.
 
-Deliverables:
+Done: owner-based authorization, per-row visibility, read/write shares to users
+and groups, anonymous creates, and opt-in signed requests with replay protection.
 
-- group membership, roles, and shares;
-- authorization checks for resource and row access;
-- multiple keys per user with independent authorization;
+Also done: inherited read access, roles with a configurable admin, and audit trails.
+
+Remaining:
+
 - key rotation and revocation;
-- audit trails for sensitive actions.
+- moderation of inherited rows by the parent's owner.
 
 Exit criteria:
 
@@ -1210,8 +1166,10 @@ bun run start
 
 ```bash
 DB_PATH=.db
-ELYSIA_PORT=5734
+PORT=5734
 OPAQUE_SERVER_SETUP=...
+SERBER_ADMINS=alice,bob   # optional; usernames that always hold the admin role
+MIGRATE_ON_START=true     # optional; set to false to apply migrations yourself
 SCHEMA_DIR=./schemas   # optional; directory of .json or .ts schema files
 ```
 
@@ -1236,6 +1194,60 @@ The test suite should cover:
 Idempotency tests are mandatory: generation and migration must be safe to re-run.
 
 ---
+
+## Access control (`x-access`)
+
+Every resource can carry an `x-access` object. Every key is optional; leaving it out gives the secure defaults shown.
+
+```json
+"x-access": {
+  "read": "session",
+  "create": "session",
+  "visibility": ["private", "authenticated", "public"],
+  "defaultVisibility": "private",
+  "shareable": false,
+  "signed": false,
+  "roles": {},
+  "audited": false
+}
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `read` | `session` | `public`: requests without a session may read rows whose visibility is `public` |
+| `create` | `session` | `public`: requests without a session may create rows; those rows have no owner. `role`: only holders of a role that grants `create` may create rows |
+| `visibility` | all values except `shared` (plus `shared` when shareable) | the values the owner may choose; enforced by a CHECK constraint |
+| `defaultVisibility` | `private` | the visibility a new row gets |
+| `shareable` | `false` | `true` derives a `<table>_share` table so owners can grant access to users and groups |
+| `signed` | `false` | `true`, or a list of `read`, `create`, `update`, `delete`, requires signed requests for those operations |
+| `roles` | `{}` | role name → operations (`true` for all) its holders may perform on every row, whoever owns it |
+| `inherit` | none | label of a to-one relation: whoever can read that parent row can read this row |
+| `audited` | `false` | `true`, or a list of operations, records each one in `audit_log` |
+
+What reaches SQL: `owner` and `visibility` columns on every exposed table (with the allowed values as a CHECK constraint and the default as the column DEFAULT), one `<table>_share` table per shareable resource, and one system `request_nonce` table. `read`, `create` and `signed` are applied by the server per request.
+
+**Rules**
+
+- The owner is the signed-in creator and can never be set by a client. Updates need ownership or a write share; deletes, visibility changes and share management need ownership.
+- A row is readable by its owner; by anyone if `public`; by any signed-in user if `authenticated`; and, if `shared`, by users and group members holding a read share. Related rows embedded in a response follow the same rule.
+- A share row names exactly one user or one group and grants `can_read`, `can_write`, or both. Permissions from several shares combine. Shares only apply while the row's visibility is `shared`. A write-only sharer gets `204` from updates instead of a copy of the row.
+- Anonymous creates link only to public rows. A row created anonymously with `private` visibility is effectively write-only.
+
+**Roles.** A user holds a role through a row in the system `user_role` resource, which only admins can create, read or delete. Usernames listed in `SERBER_ADMINS` always hold `admin`, which is how the first admin is set up. Groups never confer roles.
+
+**Inherited access.** With `"inherit": "chat"` on `message`, a message is readable by everyone who can read its chat, with no share per message. To create a row under a parent it inherits from (or move it there), the writer must be able to write to that parent. Updating and deleting the row still need ownership of the row itself. Inheritance is followed for at most three levels.
+
+**Audit trail.** Audited writes insert a row into the system `audit_log` resource (actor, action, resource, row id, time, and the request signature when signed) in the same transaction as the change, so neither happens without the other. Logins and failed logins are always recorded. Only admins can read the log, and nobody can create, change or delete entries through the API.
+
+**Signed requests** add three headers to a session request:
+
+| Header | Value |
+| --- | --- |
+| `X-Serber-Timestamp` | Unix time in ms, within 60 s of the server clock |
+| `X-Serber-Nonce` | 16–128 URL-safe random characters, never reused by a session |
+| `X-Serber-Signature` | base64url Ed25519 signature, made with the private key whose public key was sent as `clientPublicKey` at login |
+
+The signed message is these lines joined by `\n`: `serber-signature-v1`, the method, the path with query string, the session id, the timestamp, the nonce, and the base64url SHA-256 of the body. A signature that is sent is always checked, even where signing is not required. Used nonces are stored in `request_nonce` until they expire. `clientPublicKey` is optional at login; a session without one cannot make signed requests.
 
 ## Design invariants
 
@@ -1293,7 +1305,7 @@ Phases 0–5 are complete:
 - invalid requests return JSON:API errors; JSON:API responses use `application/vnd.api+json` and auth success responses use `application/json`;
 - API and auth tests run against in-memory Turso databases created from all migrations.
 
-The next milestone is Phase 6: request signing, owner-based authorization, and group sharing.
+The next milestone finishes Phase 6: inherited access, roles, and audit trails.
 
 ---
 

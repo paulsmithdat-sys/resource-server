@@ -6,8 +6,12 @@ export type SortField =
   , direction: 'asc' | 'desc'
   }
 
+export const FILTER_OPERATORS =
+  ['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in', 'nin', 'contains', 'starts', 'ends', 'null']
+
 export type FilterField =
   { field: string
+  , operator: string
   , value: string
   }
 
@@ -23,8 +27,15 @@ export type ListQuery =
 const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 100
 
-export const quoteIdentifier =
-  (value: string) => `\`${value.replaceAll('`', '``')}\``
+export { quote as quoteIdentifier } from '../db/views.ts'
+
+const bracketed =
+  (params: URLSearchParams, name: string) =>
+    // Purpose: list `name[inner]=value` query parameters as [key, inner, value]
+    [...params].flatMap(([key, value]) => {
+      const match = new RegExp(`^${name}\\[([^\\]]+)\\]$`).exec(key)
+      return match ? [[key, match[1]!, value] as const] : []
+    })
 
 const integerParameter =
   ( params: URLSearchParams
@@ -70,18 +81,24 @@ const parseSort =
 
 const parseFilters =
   (params: URLSearchParams, resource: ResourceMeta) => {
+    // Purpose: read filter[field]=value and filter[field][operator]=value parameters
     const allowed = new Set(resource.columns)
     const result: FilterField[] = []
 
     for (const [key, value] of params) {
-      const match = /^filter\[([^\]]+)\]$/.exec(key)
-      if (!match) continue
-
-      const field = match[1]!
-      if (!allowed.has(field))
+      if (!key.startsWith('filter')) continue
+      const match = /^filter\[([^\]]+)\](?:\[([^\]]+)\])?$/.exec(key)
+      if (!match)
         throw badRequest(
-          `Cannot filter by unknown field "${field}"`, key)
-      result.push({ field, value })
+          'Filters must look like filter[field]=value or filter[field][operator]=value', key)
+
+      const [, field, operator = 'eq'] = match
+      if (!allowed.has(field!))
+        throw badRequest(`Cannot filter by unknown field "${field}"`, key)
+      if (!FILTER_OPERATORS.includes(operator))
+        throw badRequest(
+          `Unknown filter operator "${operator}"; use one of ${FILTER_OPERATORS.join(', ')}`, key)
+      result.push({ field: field!, operator, value })
     }
 
     return result
@@ -91,11 +108,7 @@ const parseFields =
   (params: URLSearchParams, registry: Registry) => {
     const fields = new Map<string, Set<string>>()
 
-    for (const [key, value] of params) {
-      const match = /^fields\[([^\]]+)\]$/.exec(key)
-      if (!match) continue
-
-      const type = match[1]!
+    for (const [key, type, value] of bracketed(params, 'fields')) {
       const resource = registry.get(type)
       if (!resource)
         throw badRequest(`Unknown resource type "${type}"`, key)
