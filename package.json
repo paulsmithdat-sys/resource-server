@@ -1,7 +1,21 @@
 {
   "name": "resource-server",
-  "type": "module",
   "version": "0.0.1",
+  "description": "JSON Schema in, JSON:API server out (Bun, Hono, Turso/SQLite)",
+  "type": "module",
+  "bin": {
+    "resource-server": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./build-schema": "./src/db/build-schema.ts"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/seed",
+    "README.md"
+  ],
   "engines": {
     "bun": ">=1.4"
   },
@@ -11,7 +25,8 @@
     "db:reset": "bun src/db/reset.ts",
     "dev": "bun --watch src/server/index.ts",
     "start": "bun src/server/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "cli": "bun src/cli.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -19,6 +34,7 @@
     "@tursodatabase/database": "^0.8.3",
     "ajv-formats": "^3.0.1",
     "dotenv": "^18.0.9",
+    "drizzle-kit": "^1.0.0-rc.5",
     "drizzle-orm": "^1.0.0-rc.5",
     "hono": "^4.13.17",
     "json-schema-to-ts": "^3.1.1",
@@ -27,10 +43,6 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "drizzle-kit": "^1.0.0-rc.5"
-  },
-  "private": true,
-  "peerDependencies": {
     "typescript": "^7"
   }
 }

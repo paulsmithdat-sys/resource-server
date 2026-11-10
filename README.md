@@ -26,6 +26,7 @@ The project is built on:
 - [Relations](#relations)
 - [Views](#views)
 - [API](#api)
+- [Using it in your own project](#using-it-in-your-own-project)
 - [Documentation](#documentation)
 - [Security model](#security-model)
 - [Idempotency and migrations](#idempotency-and-migrations)
@@ -720,6 +721,41 @@ Errors use the JSON:API error format:
 ```
 
 Invalid queries and malformed write documents return `400`, unknown resource types, IDs, and routes return `404`, invalid or expired auth state returns `401`, constraint violations return `409`, and unexpected failures return `500`. Every JSON:API response, including errors, uses the content type `application/vnd.api+json`. Auth success responses use `application/json`; auth errors use the JSON:API error format.
+
+---
+
+## Using it in your own project
+
+```bash
+bun add github:<your-user>/resource-server     # pin a release with #v0.1.0
+
+# 1. generate the migrations for your schemas (JSON or TypeScript files)
+bun resource-server init schemas               # schemas/ may also be single files
+
+# 2. add the printed OPAQUE_SERVER_SETUP line to .env, then
+bun resource-server serve
+```
+
+`init [--dir .resource-server]` writes into the directory (default
+`.resource-server/`):
+
+- `migrations/` – the generated SQL. **Commit it.**
+- `config.json` – which schema paths were used, and a fingerprint of them.
+  **Commit it.**
+- `exports.ts`, `drizzle.config.ts` – generated working files, git-ignored.
+
+It also prints the settings to add to `.env`. The `OPAQUE_SERVER_SETUP` key is
+created only when none is set in the environment or `.env`; running `init` again
+never replaces it (replacing it would lock out every registered user).
+
+`serve [--dir …] [--port 5734]` applies the migrations and starts the server. It
+refuses to start when the schemas no longer match what `init` recorded, so
+**after any schema change (or a package upgrade) run `init` again, then `serve`
+again**. Other settings: `DB_PATH` (default `.db`), `PORT`, `SERBER_ADMINS`,
+`MIGRATE_ON_START=false`.
+
+The in-repo scripts (`bun run dev`, `db:generate`) still work for developing the
+library itself.
 
 ---
 

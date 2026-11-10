@@ -10,18 +10,15 @@
         "@tursodatabase/database": "^0.8.3",
         "ajv-formats": "^3.0.1",
         "dotenv": "^18.0.9",
+        "drizzle-kit": "^1.0.0-rc.5",
         "drizzle-orm": "^1.0.0-rc.5",
         "hono": "^4.13.17",
         "json-schema-to-ts": "^3.1.1",
-        "serber": ".",
         "ts-japi": "^1.12.6",
         "tweetnacl": "^1.0.3",
       },
       "devDependencies": {
         "@types/bun": "^1.4.4",
-        "drizzle-kit": "^1.0.0-rc.5",
-      },
-      "peerDependencies": {
         "typescript": "^7",
       },
     },
@@ -214,8 +211,6 @@
     "require-from-string": ["require-from-string@2.0.2", "", {}, "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw=="],
 
     "resolve-pkg-maps": ["resolve-pkg-maps@1.0.0", "", {}, "sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw=="],
-
-    "serber": ["serber@root:", {}],
 
     "ts-algebra": ["ts-algebra@2.0.0", "", {}, "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw=="],
 

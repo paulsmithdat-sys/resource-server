@@ -442,9 +442,9 @@ describe('concurrent requests', () => {
   })
 })
 
-describe('server entry point', () => {
+describe('server start-up', () => {
   test('enables session enforcement when it wires up authentication', async () => {
-    const source = await readFile(join(import.meta.dir, '../src/server/index.ts'), 'utf8')
+    const source = await readFile(join(import.meta.dir, '../src/server/start.ts'), 'utf8')
 
     expect(source).toMatch(/requireSession\s*:\s*true/)
   })

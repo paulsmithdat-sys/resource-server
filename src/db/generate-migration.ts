@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { access, readdir, readFile } from 'node:fs/promises'
 import { writeIfChanged } from './fs.ts'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { buildSchema } from './build-schema.ts'
 import
   { buildCustomDdl
@@ -14,15 +14,21 @@ import
 import { writeExports } from './generate-exports.ts'
 import { loadSchemas } from './load-schemas.ts'
 import { postprocessMigration } from './postprocess-migration.ts'
+import type { LoadedSchema } from './schema-types.ts'
 
-const projectRoot = join(import.meta.dir, '../..')
-const migrationsDir = join(projectRoot, '.drizzle')
-const exportPath = join(projectRoot, '.drizzleExports/index.ts')
-const drizzleConfig = join(projectRoot, 'drizzle.config.ts')
-const statePath = join(migrationsDir, 'custom-ddl-state.json')
+export type GeneratePaths =
+  { migrationsDir: string
+  , exportPath: string
+  , drizzleConfig: string
+  }
+
+const drizzleKitBin =
+  () =>
+    // Purpose: path of the drizzle-kit executable installed next to this package
+    join(dirname(Bun.resolveSync('drizzle-kit', import.meta.dir)), 'bin.cjs')
 
 const listMigrationDirs =
-  async () => {
+  async (migrationsDir: string) => {
     let entries
     try {
       entries = await readdir(migrationsDir, { withFileTypes: true })
@@ -44,37 +50,38 @@ const listMigrationDirs =
   }
 
 const runDrizzleGenerate =
-  (name: string, custom = false) => {
+  (paths: GeneratePaths, name: string, custom = false) => {
+    // Purpose: run `drizzle-kit generate` with the given config, producing one migration
     const args =
-      [ '--bun'
-      , 'drizzle-kit'
+      [ drizzleKitBin()
       , 'generate'
       , '--config'
-      , drizzleConfig
+      , paths.drizzleConfig
       , '--name'
       , name
       ]
     if (custom) args.push('--custom')
 
-    console.log(`> bunx ${args.join(' ')}`)
-    execFileSync('bunx', args, { cwd: projectRoot, stdio: 'inherit' })
+    console.log(`> drizzle-kit ${args.slice(1).join(' ')}`)
+    execFileSync(process.execPath, args, { cwd: process.cwd(), stdio: 'inherit' })
   }
 
-const main =
-  async () => {
-    const loaded = await loadSchemas(
-      { schemaDir: process.env.SCHEMA_DIR })
+export const generateMigrations =
+  async (paths: GeneratePaths, loaded: LoadedSchema[]) => {
+    // Purpose: write the drizzle exports and any new migration for the schemas, idempotently
+    const { migrationsDir, exportPath } = paths
+    const statePath = join(migrationsDir, 'custom-ddl-state.json')
     const built = buildSchema(loaded)
     const exportsResult = await writeExports(built, loaded, exportPath)
 
     console.log(
       `Loaded ${built.orderedTables.length} schema(s); exports ${exportsResult.changed ? 'updated' : 'unchanged'}.`)
 
-    const before = await listMigrationDirs()
+    const before = await listMigrationDirs(migrationsDir)
     const baseline = before.length === 0
-    runDrizzleGenerate(baseline ? 'initial' : 'auto')
+    runDrizzleGenerate(paths, baseline ? 'initial' : 'auto')
 
-    const after = await listMigrationDirs()
+    const after = await listMigrationDirs(migrationsDir)
     const newDirs = after.filter(dir => !before.includes(dir))
 
     const desired = buildCustomDdl(built)
@@ -88,9 +95,9 @@ const main =
     let targetDir = newDirs.at(-1)
 
     if (!targetDir && changed.length > 0) {
-      const beforeCustom = await listMigrationDirs()
-      runDrizzleGenerate('custom', true)
-      const afterCustom = await listMigrationDirs()
+      const beforeCustom = await listMigrationDirs(migrationsDir)
+      runDrizzleGenerate(paths, 'custom', true)
+      const afterCustom = await listMigrationDirs(migrationsDir)
       targetDir = afterCustom.filter(dir => !beforeCustom.includes(dir)).at(-1)
     }
 
@@ -104,16 +111,25 @@ const main =
 
       if (stateChanged)
         await writeCustomDdlState(statePath, stateFromEntries(desired))
-      return
+      return { migration: targetDir, built }
     }
 
     if (stateChanged)
       await writeCustomDdlState(statePath, stateFromEntries(desired))
 
     console.log('No schema changes.')
+    return { migration: undefined, built }
   }
 
-main().catch(error => {
-  console.error(error)
-  process.exitCode = 1
-})
+if (import.meta.main) {
+  const root = join(import.meta.dir, '../..')
+  const loaded = await loadSchemas({ schemaDir: process.env.SCHEMA_DIR })
+  generateMigrations(
+    { migrationsDir: join(root, '.drizzle')
+    , exportPath: join(root, '.drizzleExports/index.ts')
+    , drizzleConfig: join(root, 'drizzle.config.ts')
+    }, loaded).catch(error => {
+      console.error(error)
+      process.exitCode = 1
+    })
+}

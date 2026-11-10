@@ -31,7 +31,9 @@ export const buildExportsSource =
     const inputLines =
       sortedLoaded.map(
         (schema, index) =>
-          `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`)
+          schema.source.endsWith('.json')
+            ? `import input${index} from '${toImportPath(exportDir, schema.source)}'`
+            : `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`)
 
     const inputEntries =
       sortedLoaded.map(
