@@ -319,6 +319,6 @@ Tests run against in-memory databases built from every migration, so they do not
 
 ## Status
 
-Serber is in early development. Phases 0–6 are complete: schema generation, relations, views, migrations, JSON:API, OPAQUE authentication, and owner-based authorization with sharing, roles, inheritance, audit, and signing.
+Early development. Complete: schema generation, relations, views, migrations, JSON:API, OPAQUE authentication, and owner-based authorization with sharing, roles, inheritance, audit, and signing.
 
 Remaining: key rotation and revocation, moderation of inherited rows by the parent's owner, nested `include` paths, filters on related resources, and operational hardening. See [Roadmap](doc/roadmap.md).
