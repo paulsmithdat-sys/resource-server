@@ -103,6 +103,7 @@ export type RegistrationFinishDocument =
 
 export type LoginFinishDocument =
   { sessionId: string
+  , userId: string
   , type: 'session'
   , expiresAt: string
   , serverPublicKey:

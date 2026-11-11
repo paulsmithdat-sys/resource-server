@@ -18,8 +18,16 @@ Create `.env` in the project root:
 
 ```bash
 DB_PATH=.db
-ELYSIA_PORT=5734
+PORT=5734
 OPAQUE_SERVER_SETUP=...
+```
+
+Optional:
+
+```bash
+SCHEMA_DIR=./schemas      # directory of .json or .ts schema files
+SERBER_ADMINS=alice,bob   # usernames that always hold the admin role
+MIGRATE_ON_START=true     # set to false to apply migrations yourself
 ```
 
 `.env` is gitignored. Never commit server secrets.
@@ -34,6 +42,22 @@ bunx @serenity-kit/opaque create-server-setup
 startup if it is missing.
 
 ## Commands
+
+When Serber is installed as a library in another project:
+
+```bash
+# generate migrations from a schema folder or files
+bun resource-server init schemas
+
+# apply migrations and start the server
+bun resource-server serve
+```
+
+`init` writes `.resource-server/migrations/`, `.resource-server/config.json`,
+and generated working files. `serve` refuses to start when the schemas no longer
+match the recorded fingerprint, so run `init` again after a schema change.
+
+For developing the library itself:
 
 ```bash
 # generate the dynamic Drizzle export and a migration
@@ -109,7 +133,10 @@ The suite includes:
 - JSON:API documents, queries, writes, `HEAD`, and `OPTIONS`;
 - OPAQUE registration, login, sessions, unknown users, expiry, replay, and
   keypair freshness;
-- auth route validation and hidden key status.
+- auth route validation and hidden key status;
+- access control: visibility, sharing, roles, inheritance, audit, and signing;
+- the browser-safe client: auto-login, storage, expiry, signed requests, and
+  portability.
 
 Most `spec/` tests create an in-memory Turso database, apply every migration in
 sorted order, build the schema, and call the Hono app through
@@ -173,7 +200,7 @@ through a dedicated service and route in `src/server/app.ts`, before the generic
 3. builds the schema from all system and user schemas;
 4. opens the Turso database with foreign keys enabled;
 5. creates the Hono app with the built schema, row database, and OPAQUE setup;
-6. serves it on `ELYSIA_PORT` (default `5734`).
+6. serves it on `PORT` (default `5734`).
 
 `createApp` accepts an optional `opaqueServerSetup`. Without it, auth routes are
 not registered, which keeps auth-free unit tests simple.

@@ -21,8 +21,10 @@ the builder derives tables, relations, views, and API resources.
 | `x-primary` | Custom primary key marker |
 | `x-system` | Always-loaded system schema |
 | `x-exposed` | `false` hides the table, property, or relation |
+| `x-access` | Reads, creates, visibility, sharing, signing, roles, and audit |
 | `x-relations` | Relation metadata |
 | `x-unique-constraints` | Table-level unique constraints over column groups |
+| `x-link-any` | Internal: allows a relation to reference rows the writer cannot read |
 
 `additionalProperties: false` is conventional in this repository but is not the
 only accepted value.
@@ -167,7 +169,8 @@ Relations are declared under `x-relations`.
 
 A `one` relation adds a foreign-key column when it does not exist:
 
-- the default column name is `<table>_id`, or `foreignKey` when provided;
+- the default column name is `<target_table>_<target_column>`, for example
+  `user_id` for `user.id`, or `foreignKey` when provided;
 - the column type follows the target key type (UUID by default);
 - the column is indexed;
 - `required: true` makes it `NOT NULL`;
@@ -189,8 +192,10 @@ sorted endpoint pair, for example `article_tag`. The join table has:
 - a trigger and a view.
 
 A `many` relation with `through` uses the named join table instead of deriving a
-new one. Self-referential many-to-many relations require an explicit `through`
-name.
+new one. A self-referential many-to-many relation derives a join table named
+`<table>_<label>` (override with `through`) with columns `<table>_id` for this
+side and `related_<table>_id` for the target. It is directed: the relation lists
+rows where this row is on the `<table>_id` side, so symmetry is not automatic.
 
 ### Deduplication
 

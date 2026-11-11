@@ -1,9 +1,9 @@
 # Data model
 
 Every table in Serber is generated from a JSON Schema. The generator injects
-three columns, derives relations and join tables, and creates one view per
-table. System schemas define users, groups, the hidden key store, and the stored
-schema catalog.
+the default columns, derives relations and join tables, and creates one view per
+table. System schemas define users, groups, the hidden key store, roles, audit
+entries, request nonces, login limits, and the stored schema catalog.
 
 ## Default columns
 
@@ -14,6 +14,10 @@ Every table, including derived join tables, receives:
 | `id` | `blob` primary key | Defaults to `uuid7()`; exposed as a canonical UUID string |
 | `updated_at` | `integer` timestamp | Defaults to the current time; refreshed by a trigger |
 | `owner` | `blob`, nullable | Foreign key to `user.id`, indexed, `ON DELETE SET NULL` |
+
+Every exposed table also receives `visibility`, a text column with the values
+allowed by its `x-access.visibility` and a SQL CHECK constraint. Hidden tables do
+not get it. See [access-control.md](./access-control.md).
 
 ### `id`
 
@@ -41,12 +45,11 @@ Because `user` is itself a table, `user.owner` is a self-referencing foreign key
 to `user.id`. This allows one user row to point at another without a special
 case in the generator.
 
-The `owner` attribute is writable. Writes validate that the value is a canonical
-UUID and that it references an existing user. A group id or an unknown user id is
-rejected with `400` before the insert or update runs.
+The `owner` attribute is read-only. The server sets it to the signed-in creator;
+a value sent by a client is ignored. A row created anonymously has no owner.
 
-Authorization is not yet based on `owner`. Phase 6 will add request signing and
-owner-versus-other-user access checks.
+Authorization is owner-based, with per-row visibility, shares, roles, and
+inheritance. See [access-control.md](./access-control.md).
 
 ## System schemas
 
@@ -77,8 +80,9 @@ Registration creates the user row with the pre-generated UUID used as the OPAQUE
 | `description` | text | Optional, up to 500 characters |
 
 Groups have many users through the derived `user_group_membership` join table.
-Groups are the future container for roles and shares. Membership metadata,
-roles, and share grants are not implemented yet.
+Groups can receive shares on shareable resources. Membership never confers a
+role: roles come from `user_role` and are managed by admins. Sharing and roles
+are described in [access-control.md](./access-control.md).
 
 ### `key`
 
@@ -137,9 +141,44 @@ Login state rows are one-time values. Successfully finishing a login sets
 This table is available for a schema catalog used by the API and the AI
 workflow. It is not yet populated automatically.
 
+### `user_role`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `role` | text | Role name as used in `x-access.roles` |
+| `user_id` | blob | Foreign key to `user.id`, required, `ON DELETE CASCADE` |
+
+The pair `(user_id, role)` is unique. Only admins can create, read, or delete
+rows. Usernames in `SERBER_ADMINS` always hold `admin`.
+
+### `audit_log`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `actor` | blob | User who performed the action, when signed in |
+| `action` | text | `create`, `update`, `delete`, `login`, or `login_failed` |
+| `resource` | text | Resource type acted on |
+| `resource_id` | blob | Id of the row acted on |
+| `signature` | text | Request signature, when the request was signed |
+
+Written by the server inside the same transaction as the audited change.
+Append-only, readable by admins.
+
+### `request_nonce`
+
+Hidden table of nonces used by signed requests, with a unique
+`(session_id, nonce)` pair and an expiry. See
+[access-control.md](./access-control.md#signed-requests).
+
+### `auth_limit`
+
+Hidden table of login rate-limit counters and lockouts, keyed by a string such
+as `user:alice`, so every server process shares the same limits.
+
 ## Derived join tables
 
-A many-to-many relation with `through` produces a join table. For example:
+A many-to-many relation without an inverse `one` produces a join table. For
+example:
 
 ```json
 {

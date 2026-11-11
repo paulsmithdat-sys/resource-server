@@ -173,14 +173,36 @@ project's JSON:API error serializer.
 
 ```text
 src/
-  auth/          OPAQUE service, routes, and Ed25519 JWK helpers
-  db/            schema loading, derivation, building, views, migrations
+  auth/          OPAQUE service, routes, signing, limits, and Ed25519 JWK helpers
+  client/        browser-safe JSON:API client
+  commands.ts    init and serve commands
+  db/            schema loading, derivation, building, views, access, migrations
   helper/        database connection
   schema/        user and system JSON Schema modules
   seed/          sample JSON:API documents
-  server/        Hono app, registry, queries, serializers, mutations
-spec/            end-to-end API and auth tests
+  server/        Hono app, registry, queries, serializers, mutations, guards
+spec/            end-to-end API, auth, and client tests
 doc/             detailed documentation
 .drizzle/        generated migrations and custom-DDL state
 .drizzleExports/ generated Drizzle schema exports
 ```
+
+## Design invariants
+
+1. JSON Schema is the source of truth.
+2. Generated files are not edited by hand.
+3. Every table has `id`, `updated_at`, and a nullable `owner`.
+4. IDs are UUIDv7 blobs.
+5. Table and column names are snake_case.
+6. `owner` references `user.id` only, is indexed, and uses `ON DELETE SET NULL`.
+7. Keys are owned by users, never groups.
+8. Authentication state is persisted in the hidden `key` table.
+9. `x-exposed: false` removes a table, property, or relation from every public
+   surface.
+10. Applied migrations are immutable.
+11. Triggers and views are managed through custom-DDL state.
+12. Relation declarations are validated before generation.
+13. The API is JSON:API; auth success bodies are plain JSON.
+14. No raw user SQL is executed.
+15. Generation is deterministic.
+16. A schema change is the only normal reason to add a migration.

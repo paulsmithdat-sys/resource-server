@@ -417,6 +417,7 @@ export const createAuthService =
 
         return (
           { sessionId
+          , userId: canonicalUuid(login.user_id)
           , type: 'session'
           , expiresAt: iso(expiresAt)
           , serverPublicKey: publicJwkFromPrivate(privateJwk)

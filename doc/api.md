@@ -14,17 +14,34 @@ GET, HEAD /:type/:id     single resource
 PUT /:type/:id           replace a resource
 PATCH /:type/:id         update a resource
 DELETE /:type/:id        delete a resource
-OPTIONS /:type           advertised collection methods
-OPTIONS /:type/:id       advertised single-resource methods
+GET, HEAD /:type/:id/:rel                 related resource or collection
+GET, HEAD /:type/:id/relationships/:rel   relationship linkage
+PATCH /:type/:id/relationships/:rel       replace the relationship
+POST /:type/:id/relationships/:rel        add members (to-many)
+DELETE /:type/:id/relationships/:rel      remove members (to-many)
+OPTIONS on every path    advertised methods
 ```
+
+Requests with a body must send `Content-Type: application/vnd.api+json`
+(otherwise `415`). An `Accept` header that only allows JSON:API with media type
+parameters gets `406`. Every document carries `jsonapi.version`, a top-level
+`links.self`, a `links.self` per resource, and `self` and `related` links per
+relationship. Collections add `first`, `last`, `prev`, and `next` links.
 
 Resource types are snake_case table names. The built-in exposed resources are:
 
 ```text
 /user
 /user_group
+/user_role
 /schema
+/audit_log
 /article
+/chat
+/feedback
+/message
+/note
+/payment
 /tag
 ```
 
@@ -87,7 +104,12 @@ Collections support:
 - `page[number]` — 1-based page number, default `1`;
 - `page[size]` — rows per page, default `20`, maximum `100`;
 - `sort` — comma-separated fields; prefix a field with `-` for descending;
-- `filter[field]` — equality filter; repeatable as `AND` conditions;
+- `filter[field]=value` — equality filter; repeatable as `AND` conditions;
+- `filter[field][operator]=value` — `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `in` and
+  `nin` (comma-separated values), `contains`, `starts`, `ends`, and `null`
+  (`true` or `false`). Values are converted to the column type and always passed
+  as SQL parameters. JSON:API reserves `filter` but does not define operators, so
+  this operator syntax is Serber's own convention;
 - `fields[type]` — comma-separated attributes and relationship labels;
 - `include` — comma-separated relationship labels for a compound document.
 
@@ -240,14 +262,13 @@ Status codes:
 
 ## Owner attribute
 
-`owner` is a normal attribute on every exposed resource and is writable. It is a
+`owner` is a normal attribute on every exposed resource and is read-only. It is a
 nullable UUID foreign key to `user.id` with `ON DELETE SET NULL`.
 
-- omitting it creates an unowned row;
-- setting it to an existing user id succeeds;
-- setting it to a group id, an unknown user id, or a malformed value returns
-  `400` with `source.parameter = "data.attributes.owner"`;
+- the server sets it to the signed-in creator;
+- a value sent by a client is ignored;
+- a row created anonymously has no owner;
 - deleting the user sets the row's `owner` to `null`.
 
-Owner-based authorization is not implemented yet. See the root README roadmap
-for Phase 6.
+Read and write access follow the rules in
+[access-control.md](./access-control.md).

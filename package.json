@@ -8,6 +8,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client/index.ts",
     "./build-schema": "./src/db/build-schema.ts"
   },
   "files": [
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "typescript": "^7"
+    "typedoc": "^0.28.20",
+    "typescript": "^7.0.2"
   }
 }

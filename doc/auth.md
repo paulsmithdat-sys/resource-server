@@ -7,6 +7,10 @@ temporary value lives in the hidden `key` table, not in process memory.
 There is no `/auth` namespace. Authentication uses `/key`, because the
 persisted state is a key row and the REST paths map directly to that table.
 
+Applications normally use the browser-safe client rather than calling these
+routes directly. See [client.md](./client.md) for `register()`, `login()`, and
+session storage.
+
 ## Goals and non-goals
 
 Implemented:
@@ -18,15 +22,16 @@ Implemented:
 - one-time consumption of registration and login state;
 - 24-hour sessions with no refresh flow;
 - Ed25519 keypairs generated for every flow;
-- automatic purging of expired rows.
+- automatic purging of expired rows;
+- per-user and per-client login rate limiting with temporary lockout;
+- request signing with the session's client key;
+- owner-based authorization.
 
 Not implemented yet:
 
-- request signing with session keys;
-- owner-based authorization;
 - refresh tokens;
 - multi-device session management;
-- rate limiting and account lockout.
+- key rotation and revocation APIs.
 
 ## Key row lifecycle
 
@@ -103,9 +108,10 @@ Created by a successful `PATCH /key/:id` with `finishLoginRequest`.
 | `user_id` | Authenticated user id |
 | `owner` | Authenticated user id |
 
-The session response includes the server public JWK and expiry. The client keeps
-its `sessionKey` and its own private key locally. Applications typically store
-the session key in `localStorage`.
+The session response includes the server public JWK, the user id, and expiry.
+The client keeps its `sessionKey` and its own private key locally. Applications
+typically store the session key in `localStorage`; the provided client does this
+automatically.
 
 There is no refresh flow. When the session expires, a new login is required.
 
@@ -242,8 +248,8 @@ client                                      server
   |                                            | verify OPAQUE exchange
   |                                            | create session row
   |<-------------------------------------------|
-  | 200 { sessionId, type, expiresAt,          |
-  |       serverPublicKey }                    |
+  | 200 { sessionId, userId, type,             |
+  |       expiresAt, serverPublicKey }         |
 ```
 
 ### Start login
@@ -301,6 +307,7 @@ Response:
 ```json
 {
   "sessionId": "0190c9d2-...",
+  "userId": "0190c9d2-...",
   "type": "session",
   "expiresAt": "2026-11-09T12:31:00.000Z",
   "serverPublicKey": { "kty": "OKP", "crv": "Ed25519", "x": "..." }
@@ -309,7 +316,8 @@ Response:
 
 The server never returns the OPAQUE `sessionKey` in the HTTP response. The
 client obtains it directly from `opaque.client.finishLogin`. The session row
-stores that raw value so future request-signing code can verify the client.
+stores that raw value; request signatures are verified with the client public
+key sent at login, not with the session key.
 
 A login row can be consumed once. Replaying a successful finish returns `401`.
 
@@ -348,6 +356,16 @@ DELETE /key/0190c9d2-...
 
 Returns `204`. This deletes a session for logout, or aborts a pending
 registration/login flow. Deleting a missing key returns `404`.
+
+## Rate limiting
+
+Login starts are limited per username and per client: more than 30 starts in a
+minute returns `429`. A failed finish counts against the username; five failures
+lock it for 15 minutes. Successful logins clear the failure count.
+
+Counters live in the system `auth_limit` table, so they survive restarts and are
+shared by every server process. A lock applies to login starts only; existing
+sessions keep working.
 
 ## TTLs and purging
 
@@ -420,6 +438,7 @@ Auth errors use the standard JSON:API error document:
 | Missing, expired, consumed, or invalid auth state | `401` |
 | Missing key row | `404` |
 | Duplicate username or email | `409` |
+| Too many login starts or failed logins | `429` |
 | Unknown `type` in `POST /key` | `400` |
 | Both finish fields or neither | `400` |
 
@@ -446,12 +465,13 @@ Implemented:
 - automatic expiry;
 - safe status responses that never leak key material;
 - unknown usernames produce the same start response shape;
-- no plaintext password or session key is logged or returned.
+- no plaintext password or session key is logged or returned;
+- login rate limiting and temporary lockout;
+- owner-based row authorization and sharing;
+- opt-in request signing with single-use nonces.
 
 Deferred:
 
-- request signing and verification;
-- owner-based authorization;
-- rate limiting and lockout;
 - key rotation and revocation APIs;
-- audit logging.
+- multi-device session management;
+- refresh tokens.

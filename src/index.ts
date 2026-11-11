@@ -1,4 +1,10 @@
 export { init, serve } from './commands.ts'
+export
+  { createResourceServerClient
+  , ResourceServerError
+  , type ResourceServerClientOptions
+  , type ResourceServerSession
+  } from './client/index.ts'
 export { createApp } from './server/app.ts'
 export { loadSchemas } from './db/load-schemas.ts'
 export { buildSchema } from './db/build-schema.ts'
