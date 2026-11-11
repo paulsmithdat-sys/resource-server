@@ -15,6 +15,18 @@ const book =
       , properties: { name: { type: 'string' }, ...extra }
       })
 
+const magazineYaml = `
+title: Magazine
+type: object
+properties:
+  name: { type: string }
+---
+title: Issue
+type: object
+properties:
+  number: { type: integer }
+`
+
 const run =
   (args: string[], env: Record<string, string> = {}) => {
     // Purpose: run the CLI in the throwaway project with a clean environment plus the given variables
@@ -31,6 +43,7 @@ beforeAll(async () => {
   project = await mkdtemp(join(tmpdir(), 'rs-cli-'))
   await mkdir(join(project, 'schemas'))
   await writeFile(join(project, 'schemas/book.json'), book())
+  await writeFile(join(project, 'schemas/magazine.yaml'), magazineYaml)
 })
 
 afterAll(() => rm(project, { recursive: true, force: true }))
@@ -77,7 +90,11 @@ describe('resource-server init and serve', () => {
         body = await fetch(`http://localhost:${port}/`).then(x => x.json()).catch(() => undefined)
         if (!body) await Bun.sleep(200)
       }
-      expect(body.meta.resources.map((x: any) => x.type)).toContain('book')
+      const types = body.meta.resources.map((x: any) => x.type)
+      expect(types).toContain('book')
+      // Both YAML documents from one file become their own tables
+      expect(types).toContain('magazine')
+      expect(types).toContain('issue')
     } finally {
       child.kill()
     }

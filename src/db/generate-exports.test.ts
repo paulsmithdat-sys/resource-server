@@ -48,6 +48,25 @@ describe('buildExportsSource', () => {
       buildSchema(invalid), invalid, projectExportPath))
       .toThrow('not a valid identifier')
   })
+
+  test('inlines YAML sources instead of importing them', () => {
+    const widget: JSONSchema =
+      { title: 'Widget', type: 'object', properties: { name: { type: 'string' } } }
+    const yamlSchemas =
+      [ { ...loadedSchema(widget)
+        , source: '/test/widget.yaml'
+        , importPath: 'src/schema/widget.yaml'
+        } ]
+
+    const source = buildExportsSource(buildSchema(yamlSchemas), yamlSchemas, projectExportPath)
+    // Purpose: drizzle-kit consumes TypeScript and cannot import YAML files
+    expect(source).toContain('const input0 = {')
+    expect(source).toContain('"title": "Widget"')
+    expect(source).not.toContain("from '/test/widget.yaml'")
+    expect(source).not.toContain('from "src/schema/widget.yaml"')
+    expect(source).toContain('source: "src/schema/widget.yaml"')
+    expect(source).toContain('export const Widget = builtSchema.tables[\'Widget\'].drizzleSchema')
+  })
 })
 
 describe('writeExports', () => {
