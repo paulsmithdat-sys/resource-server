@@ -51,6 +51,17 @@ It also prints the environment settings. `OPAQUE_SERVER_SETUP` is created only w
 
 A schema is a JSON Schema object. The `title` becomes the snake_case table name.
 
+Schemas are written as `.ts`, `.json`, `.yaml`, or `.yml` files:
+
+- `.ts` modules export schema objects (named exports; non-schema exports are ignored).
+- `.json` files hold exactly one schema object.
+- `.yaml`/`.yml` files may hold several schemas, one per `---` document; each document is named by its `title`, not by the file name.
+- Schema folders are scanned recursively, and file names never affect table names.
+- `*.test.*` files, dotfiles, `README*`, and `LICENSE*` are skipped.
+- Anything else in a schema folder fails loudly, as does a JSON or YAML file whose top level is not a schema object. Missing schema files were the reason `init` once reported fewer tables than you wrote.
+
+A nullable property is written with `required` — not with a union — because a union-typed column still needs one SQLite type. `type: ["integer", "null"]` collapses to `integer`, `["null", "string"]` to `string`, in properties, nested `properties`, and `items` alike. Unions with two or more non-null types, or with only `"null"`, fail loudly.
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -122,6 +133,7 @@ Type mapping:
 | `boolean` | `integer` |
 | `object`, `array` | `text` JSON |
 | `enum` of strings | `text` with enum typing |
+| `[T, "null"]` | collapses to `T`; nullability comes from `required` |
 
 The keyword set is allowlisted. Unknown keywords, duplicate titles, missing relation targets, and conflicting constraints fail before any SQL runs. See [Schema reference](doc/schema-reference.md).
 

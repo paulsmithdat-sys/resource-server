@@ -1,8 +1,41 @@
 # Schema reference
 
-A schema module exports a JSON Schema object. User schemas live in `src/schema/`
-and system schemas in `src/schema/system/`. The loader validates each module and
-the builder derives tables, relations, views, and API resources.
+A schema is a JSON Schema object. User schemas live in `src/schema/` and system
+schemas in `src/schema/system/`. The loader validates each file and the builder
+derives tables, relations, views, and API resources.
+
+## File formats
+
+Schema files are `.ts`, `.json`, `.yaml`, or `.yml`:
+
+- `.ts` modules export schema objects as named exports. Exports that are not
+  schema objects (helpers, types) are ignored.
+- `.json` files hold exactly one schema object.
+- `.yaml` and `.yml` files may hold several schemas, one per `---` document.
+  Every document is named by its own `title`, so a file can be named anything
+  and hold any number of schemas.
+- Schema folders are scanned recursively; subdirectories are loaded too.
+- `*.test.ts`, `*.test.json`, `*.test.yaml`, and `*.test.yml` files, dotfiles,
+  `README*`, and `LICENSE*` are skipped.
+
+The loader fails loudly instead of skipping silently:
+
+- an unrecognized file in a schema folder (anything that is not one of the
+  four extensions above, and not skipped) errors, listing every offending
+  file;
+- a `.json`, `.yaml`, or `.yml` file whose top level is not a schema object
+  (it needs a `title` and either `properties` or `type: object`) errors, naming
+  the file and, for YAML, the document number;
+- a YAML file with a syntax error or with no documents at all errors.
+
+## Nullable properties
+
+A union with `"null"`, such as `type: ["integer", "null"]`, collapses onto its
+single non-null member (`integer`), recursively through nested `properties`
+and `items`. Nullability itself comes from `required`: a property that is not
+listed there stays nullable, with `null` stored when the request omits it. A
+union with two or more non-null types, or with `"null"` only, fails loudly,
+naming the schema and the property.
 
 ## Supported keywords
 
@@ -43,6 +76,7 @@ only accepted value.
 | `object` | `text` JSON |
 | `array` | `text` JSON |
 | string `enum` | `text` with enum typing |
+| `[T, "null"]` | collapses to `T`; nullability comes from `required` |
 
 Column names are snake_cased. API attribute names are the snake_case column
 names.
