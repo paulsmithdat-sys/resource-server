@@ -197,4 +197,61 @@ describe('JSON:API application', () => {
         .find((x: any) => x.type === 'article')
         .relationships).toContain('tag')
   })
+
+  test('creates rows with nullable union-typed attributes', async () => {
+    const widgetBuilt = buildSchema(
+      [ loadedSchema(
+          { title: 'Widget'
+          , type: 'object'
+          , properties:
+            { name: { type: 'string' }
+            , rank: { type: ['integer', 'null'] }
+            }
+          })])
+
+    const widgetRow: Row =
+      { id: '01900000-0000-7000-8000-000000000003'
+      , updated_at: 1
+      , name: 'gizmo'
+      , rank: 5
+      }
+
+    const calls: { sql: string; params: unknown[] }[] = []
+    const db: RowDatabase =
+      { all: async () => [widgetRow]
+      , get: async (sql, params = []) => {
+          calls.push({ sql, params })
+          if (sql.startsWith('INSERT')) return widgetRow
+          return widgetRow
+        }
+      , run: async () => ({ changes: 0, lastInsertRowid: 0 })
+      }
+
+    const app = createApp({ built: widgetBuilt, db })
+    const post =
+      (attributes: Record<string, unknown>) =>
+        app.request('/widget',
+          { method: 'POST'
+          , headers: { 'content-type': 'application/vnd.api+json' }
+          , body: JSON.stringify({ data: { type: 'widget', attributes } })
+          })
+
+    // A provided value passes validation and is inserted as an integer
+    const created = await post({ name: 'gizmo', rank: 5 })
+    expect(created.status).toBe(201)
+    expect(created.headers.get('content-type')).toBe('application/vnd.api+json')
+    const insert = calls.find(x => x.sql.startsWith('INSERT'))!
+    expect(insert.sql).toContain('`rank`')
+    expect(insert.params).toContain(5)
+
+    // An omitted value stays null because nullability comes from `required`
+    const omitted = await post({ name: 'gizmo' })
+    expect(omitted.status).toBe(201)
+
+    // A value of the wrong type is rejected
+    const invalid = await post({ name: 'gizmo', rank: 'five' })
+    expect(invalid.status).toBe(400)
+    const invalidDocument = await invalid.json() as any
+    expect(invalidDocument.errors[0].source.parameter).toBe('data.attributes.rank')
+  })
 })

@@ -37,7 +37,9 @@ export type RelationConfig =
   }
 
 export type JSONSchemaProperty =
-  { type?: string
+  // A union with "null" such as [string, 'null'] is normalized to its
+  // non-null member before schema building; nullability comes from `required`.
+  { type?: string | string[]
   , format?: string
   , description?: string
   , enum?: readonly unknown[]

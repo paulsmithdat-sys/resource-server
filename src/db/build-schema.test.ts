@@ -177,6 +177,92 @@ describe('buildSchema column types', () => {
   })
 })
 
+describe('buildSchema union types', () => {
+  test('collapses [T, "null"] unions onto their non-null member', () => {
+    const config = columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { rank: { type: ['integer', 'null'] }
+        , label: { type: ['null', 'string'], enum: ['a', 'b'] }
+        , score: { type: 'number' }
+        }
+      })
+
+    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
+    expect(byName.rank!.getSQLType()).toBe('integer')
+    expect(byName.label!.getSQLType()).toBe('text')
+    expect(byName.label!.enumValues).toEqual(['a', 'b'])
+    expect(byName.score!.getSQLType()).toBe('real')
+  })
+
+  test('leaves nullability to required, keeping columns nullable', () => {
+    const config = columnConfig(
+      { title: 'Widget'
+      , type: 'object'
+      , required: ['rank']
+      , properties:
+        { rank: { type: ['integer', 'null'] }
+        , score: { type: ['integer', 'null'] }
+        }
+      })
+
+    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
+    expect(byName.rank!.notNull).toBe(true)
+    expect(byName.score!.notNull).toBe(false)
+  })
+
+  test('normalizes unions nested in object properties and array items', () => {
+    const built = buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { rank: { type: ['integer', 'null'] }
+        , meta:
+          { type: 'object'
+          , properties:
+            { depth: { type: ['integer', 'null'] }
+            , inner: { type: 'object', properties: { size: { type: ['number', 'null'] } } }
+            }
+          }
+        , tags: { type: 'array', items: { type: ['string', 'null'] } }
+        }
+      })
+
+    const schema = built.tables.Widget!.schema
+    const property = (key: string) => schema.properties![key]!
+    expect(property('rank').type).toBe('integer')
+    expect(property('meta').properties!.depth!.type).toBe('integer')
+    expect(property('meta').properties!.inner!.properties!.size!.type).toBe('number')
+    expect(property('tags').items!.type).toBe('string')
+  })
+
+  test('rejects unions without exactly one non-null type', () => {
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: { rank: { type: ['integer', 'string'] } }
+      })).toThrow('Widget: property "rank" type must be a single type, not integer or string')
+
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties: { rank: { type: ['null'] } }
+      })).toThrow('Widget: property "rank" type must not be "null" only')
+
+    expect(() => buildOne(
+      { title: 'Widget'
+      , type: 'object'
+      , properties:
+        { meta:
+          { type: 'object'
+          , properties: { depth: { type: ['integer', 'string'] } }
+          }
+        }
+      })).toThrow('Widget: property "meta.depth" type must be a single type')
+  })
+})
+
 describe('buildSchema relations', () => {
   test('keeps relation metadata and validates its shape', () => {
     const built = buildSchema(

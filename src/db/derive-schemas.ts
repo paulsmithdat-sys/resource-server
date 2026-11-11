@@ -205,10 +205,38 @@ const deriveShareTable =
       })
   }
 
+const normalizePropertyTypes =
+  (title: string, property: JSONSchemaProperty, label: string): void => {
+    // Purpose: collapse type unions like [string, 'null'] to their single
+    // non-null member so every consumer sees a plain type string;
+    // nullability continues to come from `required`
+    if (Array.isArray(property.type)) {
+      const nonNull = property.type.filter(x => x !== 'null')
+      if (nonNull.length === 0)
+        throw new Error(`${title}: property "${label}" type must not be "null" only`)
+      if (nonNull.length > 1)
+        throw new Error(
+          `${title}: property "${label}" type must be a single type, not `
+          + `${nonNull.join(' or ')}`)
+      property.type = nonNull[0]!
+    }
+    if (property.items)
+      normalizePropertyTypes(title, property.items, `${label}[]`)
+    for (const [key, child] of Object.entries(property.properties ?? {}))
+      normalizePropertyTypes(title, child, `${label}.${key}`)
+  }
+
 export const deriveSchemas =
   (base: LoadedSchema[]): LoadedSchema[] => {
     const copies =
       base.map(x => ({ ...x, schema: structuredClone(x.schema) }))
+
+    // Purpose: normalize before any derivation so foreign keys and share
+    // tables inherit plain type strings too
+    for (const entry of copies)
+      for (const [key, property] of Object.entries(entry.schema.properties ?? {}))
+        normalizePropertyTypes(entry.schema.title, property, key)
+
     const cloned =
       [ ...copies
       , ...copies
