@@ -18,6 +18,9 @@ const assertIdentifier =
     return value
   }
 
+const isYamlSource =
+  (source: string) => source.endsWith('.yaml') || source.endsWith('.yml')
+
 export const buildExportsSource =
   (built: BuiltSchema, loaded: LoadedSchema[], exportPath: string) => {
     const exportDir = dirname(exportPath)
@@ -30,10 +33,14 @@ export const buildExportsSource =
 
     const inputLines =
       sortedLoaded.map(
-        (schema, index) =>
-          schema.source.endsWith('.json')
-            ? `import input${index} from '${toImportPath(exportDir, schema.source)}'`
-            : `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`)
+        (schema, index) => {
+          if (schema.source.endsWith('.json'))
+            return `import input${index} from '${toImportPath(exportDir, schema.source)}'`
+          // Purpose: drizzle-kit cannot import YAML, so its parsed documents are inlined
+          if (isYamlSource(schema.source))
+            return `const input${index} = ${JSON.stringify(schema.schema, null, 2)}`
+          return `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`
+        })
 
     const inputEntries =
       sortedLoaded.map(
