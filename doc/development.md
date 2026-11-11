@@ -155,7 +155,7 @@ import { login, register } from './helpers/auth-client.ts'
 
 const { userId } = await register(app, {
   username: 'alice',
-  email: 'alice@example.com',
+  // email is optional and not part of registration
   password: 'correct horse battery staple',
 })
 

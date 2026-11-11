@@ -63,7 +63,7 @@ describe('owner', () => {
     const { app } = await createTestServer()
     const user =
       await createUser(
-        app, { username: 'alice', email: 'alice@example.com' })
+        app, { username: 'alice' })
 
     for (const owner of [user.id, Bun.randomUUIDv7()]) {
       const response =
@@ -91,7 +91,7 @@ describe('owner', () => {
     const { app, db } = await createTestServer()
     const user =
       await createUser(
-        app, { username: 'alice', email: 'alice@example.com' })
+        app, { username: 'alice' })
     const tag = await documentOf(
       await createTag(app, { name: 'owned', kind: 'topic' }))
     await db.run(

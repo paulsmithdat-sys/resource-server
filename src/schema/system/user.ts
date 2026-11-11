@@ -16,9 +16,7 @@ export const userSchema =
     , email:
       { description: "Email address"
       , type: "string"
-      , format: "email"
       , maxLength: 255
-      , "x-unique": true
       }
     , display_name:
       { description: "Display name"

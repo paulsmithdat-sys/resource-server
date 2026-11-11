@@ -10,11 +10,10 @@ const compile =
 const registrationStart = compile(
   { type: 'object'
   , additionalProperties: false
-  , required: [ 'type', 'username', 'email', 'registrationRequest', 'clientPublicKey' ]
+  , required: [ 'type', 'username', 'registrationRequest', 'clientPublicKey' ]
   , properties:
     { type: { type: 'string' }
     , username: { type: 'string', minLength: 1, maxLength: 100 }
-    , email: { type: 'string', minLength: 3, maxLength: 255, format: 'email' }
     , displayName: { type: 'string', maxLength: 100 }
     , registrationRequest: { type: 'string', minLength: 1 }
     , clientPublicKey: { type: 'object' }

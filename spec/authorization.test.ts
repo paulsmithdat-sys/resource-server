@@ -88,8 +88,8 @@ describe('OPAQUE resource authorization', () => {
   test('non-owner cannot read another user\'s article', async () => {
     const { app } = await createTestServer({ session: true })
 
-    await register(app, { ...credentials(), username: 'alice', email: 'alice@example.com' })
-    await register(app, { ...credentials(), username: 'bob', email: 'bob@example.com' })
+    await register(app, { ...credentials(), username: 'alice' })
+    await register(app, { ...credentials(), username: 'bob' })
 
     const alice = await login(app, { username: 'alice', password: 'correct horse battery staple' })
     const bob = await login(app, { username: 'bob', password: 'correct horse battery staple' })
@@ -108,8 +108,8 @@ describe('OPAQUE resource authorization', () => {
   test('non-owner cannot update another user\'s article', async () => {
     const { app } = await createTestServer({ session: true })
 
-    await register(app, { ...credentials(), username: 'alice', email: 'alice@example.com' })
-    await register(app, { ...credentials(), username: 'bob', email: 'bob@example.com' })
+    await register(app, { ...credentials(), username: 'alice' })
+    await register(app, { ...credentials(), username: 'bob' })
 
     const alice = await login(app, { username: 'alice', password: 'correct horse battery staple' })
     const bob = await login(app, { username: 'bob', password: 'correct horse battery staple' })
@@ -131,8 +131,8 @@ describe('OPAQUE resource authorization', () => {
   test('non-owner cannot delete another user\'s article', async () => {
     const { app } = await createTestServer({ session: true })
 
-    await register(app, { ...credentials(), username: 'alice', email: 'alice@example.com' })
-    await register(app, { ...credentials(), username: 'bob', email: 'bob@example.com' })
+    await register(app, { ...credentials(), username: 'alice' })
+    await register(app, { ...credentials(), username: 'bob' })
 
     const alice = await login(app, { username: 'alice', password: 'correct horse battery staple' })
     const bob = await login(app, { username: 'bob', password: 'correct horse battery staple' })
@@ -157,8 +157,8 @@ describe('OPAQUE resource authorization', () => {
   test('list only returns resources owned by the authenticated user', async () => {
     const { app } = await createTestServer({ session: true })
 
-    await register(app, { ...credentials(), username: 'alice', email: 'alice@example.com' })
-    await register(app, { ...credentials(), username: 'bob', email: 'bob@example.com' })
+    await register(app, { ...credentials(), username: 'alice' })
+    await register(app, { ...credentials(), username: 'bob' })
 
     const alice = await login(app, { username: 'alice', password: 'correct horse battery staple' })
     const bob = await login(app, { username: 'bob', password: 'correct horse battery staple' })
@@ -189,8 +189,8 @@ describe('OPAQUE resource authorization', () => {
   test('owner attribute is forced to the authenticated user on create', async () => {
     const { app } = await createTestServer({ session: true })
 
-    await register(app, { ...credentials(), username: 'alice', email: 'alice@example.com' })
-    await register(app, { ...credentials(), username: 'bob', email: 'bob@example.com' })
+    await register(app, { ...credentials(), username: 'alice' })
+    await register(app, { ...credentials(), username: 'bob' })
 
     const alice = await login(app, { username: 'alice', password: 'correct horse battery staple' })
     const bob = await login(app, { username: 'bob', password: 'correct horse battery staple' })

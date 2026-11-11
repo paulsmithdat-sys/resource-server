@@ -352,12 +352,12 @@ describe('system resources', () => {
       await alice.request(
         'PATCH'
         , `/user/${bob.userId}`
-        , resourceDocument('user', { email: 'attacker@example.com' }))
+        , resourceDocument('user', { display_name: 'attacker' }))
     expect(patch.status).toBe(404)
     expect((await alice.request('DELETE', `/user/${bob.userId}`)).status).toBe(404)
 
     const read = await body(await bob.request('GET', `/user/${bob.userId}`))
-    expect(read.data.attributes.email).toBe('bob@example.com')
+    expect(read.data.attributes.display_name).toBe('bob')
 
     const again = await login(app, { username: 'bob', password: PASSWORD })
     expect(again.finish.response.status).toBe(200)

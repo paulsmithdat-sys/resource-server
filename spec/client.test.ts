@@ -40,7 +40,6 @@ const connect =
 
 const alice =
   { username: 'alice'
-  , email: 'alice@example.com'
   , password: 'correct horse battery staple'
   , displayName: 'Alice'
   }

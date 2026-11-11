@@ -198,7 +198,6 @@ describe('login', () => {
                 { type: 'user'
                 , attributes:
                     { username: 'legacy'
-                    , email: 'legacy@example.com'
                     }
                 }
               })

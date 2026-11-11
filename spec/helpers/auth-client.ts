@@ -11,7 +11,6 @@ export type AuthResponse<T> =
 
 export const authCredentials =
   { username: 'alice'
-  , email: 'alice@example.com'
   , password: 'correct horse battery staple'
   , displayName: 'Alice'
   }
@@ -123,7 +122,6 @@ export const startRegistration =
     app: Hono,
     input:
       { username: string
-      , email: string
       , password: string
       , displayName?: string
       }) => {
@@ -137,7 +135,6 @@ export const startRegistration =
         , '/key'
         , { type: 'opaque_registration'
           , username: input.username
-          , email: input.email
           , displayName: input.displayName
           , registrationRequest
           , clientPublicKey: clientKeyPair.publicJwk
@@ -179,7 +176,6 @@ export const register =
     app: Hono,
     input:
       { username: string
-      , email: string
       , password: string
       , displayName?: string
       }) => {

@@ -91,7 +91,7 @@ const mapWriteError =
   (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     if (/UNIQUE constraint failed/i.test(message))
-      return conflict('A user with that username or email already exists')
+      return conflict('A user with that username already exists')
     if (/FOREIGN KEY constraint failed/i.test(message))
       return conflict('The referenced user does not exist')
     return error instanceof Error ? error : new Error(message)
@@ -173,15 +173,14 @@ export const createAuthService =
         await opaque.ready
         const body = validate(registrationStart, raw)
         const username = (body.username as string).toLowerCase()
-        const email = (body.email as string).toLowerCase()
         const publicJwk = clientKey(body)
 
         await purgeExpired()
 
         if (await db.get(
-          'SELECT 1 FROM `user` WHERE lower(`username`) = ? OR lower(`email`) = ? LIMIT 1'
-          , [username, email]))
-          throw conflict('A user with that username or email already exists')
+          'SELECT 1 FROM `user` WHERE lower(`username`) = ? LIMIT 1'
+          , [username]))
+          throw conflict('A user with that username already exists')
 
         const userId = newUuid()
         const id = newUuid()
@@ -205,7 +204,6 @@ export const createAuthService =
             , material:
                 JSON.stringify(
                   { username
-                  , email
                   , displayName:
                       typeof body.displayName === 'string'
                       && body.displayName.length > 0
@@ -239,7 +237,7 @@ export const createAuthService =
                   tx, 'opaque_registration', idValue, now, '`material`')
               const pending = parseStored(consumed.material, 'registration state')
               if (!isObject(pending)
-                  || ['username', 'email', 'userId']
+                  || ['username', 'userId']
                       .some(key => typeof pending[key] !== 'string'))
                 throw new Error('Stored registration state is invalid')
 
@@ -259,11 +257,10 @@ export const createAuthService =
               const userId = uuidToBuffer(pending.userId as string)
               try {
                 await tx.run(
-                  'INSERT INTO `user` (`id`, `username`, `email`, `display_name`,'
-                  + ' `owner`) VALUES (?, ?, ?, ?, ?)'
+                  'INSERT INTO `user` (`id`, `username`, `display_name`, `owner`)'
+                  + ' VALUES (?, ?, ?, ?)'
                   , [ userId
                     , pending.username
-                    , pending.email
                     , typeof pending.displayName === 'string'
                         ? pending.displayName
                         : null

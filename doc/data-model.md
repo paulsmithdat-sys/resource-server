@@ -60,7 +60,7 @@ System schemas are always loaded, even when application schemas change.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `username` | text | Unique, 1–100 characters |
-| `email` | text | Unique, email format, up to 255 characters |
+| `email` | text | Optional, freeform, up to 255 characters (not used for registration, not unique, not verified) |
 | `display_name` | text | Optional, up to 100 characters |
 | `owner` | blob | Injected self-reference to `user.id` |
 

@@ -70,7 +70,6 @@ describe('registration robustness', () => {
         app
         , { type: 'opaque_registration'
           , username: 'alice'
-          , email: 'alice@example.com'
           , registrationRequest: 'not-an-opaque-request'
           , clientPublicKey: generateKeyPair().publicJwk
           })
@@ -104,8 +103,8 @@ describe('registration robustness', () => {
 
   test('concurrent registrations of the same username create exactly one user', async () => {
     const { app, db } = await createTestServer()
-    const first = await startRegistration(app, credentials({ email: 'one@example.com' }))
-    const second = await startRegistration(app, credentials({ email: 'two@example.com' }))
+    const first = await startRegistration(app, credentials())
+    const second = await startRegistration(app, credentials())
     expect(first.response.status).toBe(201)
     expect(second.response.status).toBe(201)
 
@@ -114,18 +113,6 @@ describe('registration robustness', () => {
 
     expect(statuses).toEqual([200, 409])
     expect(await userCount(db, 'alice')).toBe(1)
-  })
-
-  test('concurrent registrations of the same email create exactly one user', async () => {
-    const { app, db } = await createTestServer()
-    const first = await startRegistration(app, credentials({ username: 'alice' }))
-    const second = await startRegistration(app, credentials({ username: 'alicia' }))
-
-    const results = await Promise.all([finishRegistration(app, first), finishRegistration(app, second)])
-
-    expect(results.map(x => x.response.status).sort()).toEqual([200, 409])
-    expect(await count(db, 'SELECT COUNT(*) AS n FROM `user` WHERE `email` = ?', ['alice@example.com'])).toBe(1)
-    expect(await userCount(db, 'alice') + await userCount(db, 'alicia')).toBe(1)
   })
 
   test('the same pending registration cannot be finished twice concurrently', async () => {
@@ -145,8 +132,8 @@ describe('registration robustness', () => {
 
   test('two users with different passwords cannot log in with each other\'s', async () => {
     const { app } = await createTestServer()
-    await register(app, credentials({ username: 'alice', email: 'a@example.com', password: 'alice password one' }))
-    await register(app, credentials({ username: 'bob', email: 'b@example.com', password: 'bob password two' }))
+    await register(app, credentials({ username: 'alice', password: 'alice password one' }))
+    await register(app, credentials({ username: 'bob', password: 'bob password two' }))
 
     for (const attempt of
       [ { username: 'alice', password: 'bob password two' }
@@ -158,21 +145,18 @@ describe('registration robustness', () => {
     }
   })
 
-  test('treats usernames and emails case-insensitively', async () => {
+  test('treats usernames case-insensitively', async () => {
     const { app, db } = await createTestServer()
     await register(app, credentials())
 
     const sameName =
-      await startRegistration(app, credentials({ username: 'ALICE', email: 'other@example.com' }))
-    const sameEmail =
-      await startRegistration(app, credentials({ username: 'alicia', email: 'Alice@Example.com' }))
+      await startRegistration(app, credentials({ username: 'ALICE' }))
     expect(sameName.response.status).toBe(409)
-    expect(sameEmail.response.status).toBe(409)
 
     const session = await login(app, { username: 'ALICE', password: PASSWORD })
     expect(session.finish.response.status).toBe(200)
 
-    await register(app, credentials({ username: 'Bob', email: 'Bob@Example.com' }))
+    await register(app, credentials({ username: 'Bob' }))
     expect(await userCount(db, 'bob')).toBe(1)
   })
 })
@@ -180,7 +164,7 @@ describe('registration robustness', () => {
 describe('login robustness', () => {
   test('a user with only a pending registration cannot log in', async () => {
     const { app, db } = await createTestServer()
-    await startRegistration(app, credentials({ username: 'carol', email: 'carol@example.com' }))
+    await startRegistration(app, credentials({ username: 'carol' }))
 
     const start = await startLogin(app, { username: 'carol', password: PASSWORD })
     expect(start.response.status).toBe(201)
@@ -206,8 +190,8 @@ describe('login robustness', () => {
 
   test('one user\'s valid finish request cannot complete another user\'s login', async () => {
     const { app, db } = await createTestServer()
-    await register(app, credentials({ username: 'alice', email: 'a@example.com' }))
-    await register(app, credentials({ username: 'bob', email: 'b@example.com' }))
+    await register(app, credentials({ username: 'alice' }))
+    await register(app, credentials({ username: 'bob' }))
 
     const aliceStart = await startLogin(app, { username: 'alice', password: PASSWORD })
     const bobStart = await startLogin(app, { username: 'bob', password: PASSWORD })

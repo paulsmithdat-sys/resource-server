@@ -88,7 +88,7 @@ describe('bearer session handling', () => {
     const { app } = await createTestServer({ session: true })
 
     const pendingRegistration =
-      await startRegistration(app, credentials({ username: 'carol', email: 'carol@example.com' }))
+      await startRegistration(app, credentials({ username: 'carol' }))
     const finished = await register(app, credentials())
     const loginStart = await startLogin(app, { username: 'alice', password: credentials().password })
 

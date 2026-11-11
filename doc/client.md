@@ -41,7 +41,7 @@ creates the user during registration, then the client starts a normal login:
 ```ts
 const { userId, session } = await client.register({
   username: 'alice',
-  email: 'alice@example.com',
+  displayName: 'Alice', // optional
   password: 'correct horse battery staple',
   displayName: 'Alice', // optional
 })
@@ -57,7 +57,7 @@ const { userId, session } = await client.register(input, { signIn: false })
 // session === null
 ```
 
-Login uses the same input shape as the server, without an email:
+Login uses the username and password:
 
 ```ts
 const session = await client.login({ username: 'alice', password })

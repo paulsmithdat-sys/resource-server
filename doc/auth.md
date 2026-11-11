@@ -46,7 +46,7 @@ Created by `POST /key` with `"type": "opaque_registration"`.
 | --- | --- |
 | `type` | `opaque_registration` |
 | `jwk` | Client public JWK |
-| `material` | Pending username, email, display name, and future user id |
+| `material` | Pending username, display name, and future user id |
 | `expires_at` | Now + 10 minutes |
 | `consumed_at` | `NULL` |
 | `user_id` | `NULL` |
@@ -124,10 +124,10 @@ client                                      server
   |------------------------------------------->|
   | POST /key                                  |
   | { type: "opaque_registration",             |
-  |   username, email, displayName,            |
+  |   username, displayName,                   |
   |   registrationRequest, clientPublicKey }   |
   |                                            | validate fields
-  |                                            | check unique user/email
+  |                                            | check unique username
   |                                            | create pending key row
   |                                            | create user id (UUIDv7)
   |                                            | OPAQUE registration response
@@ -156,7 +156,6 @@ Content-Type: application/json
 {
   "type": "opaque_registration",
   "username": "alice",
-  "email": "alice@example.com",
   "displayName": "Alice",
   "registrationRequest": "...",
   "clientPublicKey": {
@@ -186,12 +185,11 @@ Content-Type: application/json
 Validation:
 
 - `username`: 1–100 characters;
-- `email`: 3–255 characters and a basic email shape;
 - `displayName`: optional, up to 100 characters;
 - `registrationRequest`: non-empty string;
 - `clientPublicKey`: Ed25519 public JWK without private material.
 
-Duplicate username or email returns `409`.
+`email` is not part of registration. Duplicate username returns `409`. Email, if used, is an optional, freeform, unverified profile field that can be set later via the normal user resource and is never used to prove identity.
 
 ### Finish registration
 
@@ -213,8 +211,7 @@ Response:
 }
 ```
 
-A missing, expired, or already consumed row returns `401`. A duplicate user or
-email discovered during finish returns `409`.
+A missing, expired, or already consumed row returns `401`. A duplicate username discovered during finish returns `409`.
 
 The finished registration record is retained indefinitely and is used by later
 logins. It is never returned by `GET /key/:id`.
@@ -437,7 +434,7 @@ Auth errors use the standard JSON:API error document:
 | Malformed body, field, UUID, or JWK | `400` |
 | Missing, expired, consumed, or invalid auth state | `401` |
 | Missing key row | `404` |
-| Duplicate username or email | `409` |
+| Duplicate username | `409` |
 | Too many login starts or failed logins | `429` |
 | Unknown `type` in `POST /key` | `400` |
 | Both finish fields or neither | `400` |

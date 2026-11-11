@@ -212,7 +212,6 @@ const client = createResourceServerClient({ baseUrl: 'https://api.example.com' }
 // Registers and logs in, saving the session.
 await client.register({
   username: 'alice',
-  email: 'alice@example.com',
   password: 'correct horse battery staple',
 })
 

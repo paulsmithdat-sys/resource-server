@@ -13,7 +13,6 @@ const JSON_HEADERS = { 'content-type': 'application/json' }
 
 export type RegisterInput =
   { username: string
-  , email: string
   , password: string
   , displayName?: string
   }
@@ -118,7 +117,6 @@ export const createAuth =
             , '/key'
             , { type: 'opaque_registration'
               , username: input.username
-              , email: input.email
               , ...(input.displayName === undefined
                   ? {}
                   : { displayName: input.displayName })

@@ -42,7 +42,6 @@ const registrationBody =
   (overrides: Record<string, unknown> = {}) =>
     ({ type: 'opaque_registration'
     , username: 'alice'
-    , email: 'alice@example.com'
     , registrationRequest: 'request'
     , clientPublicKey: generateKeyPair().publicJwk
     , ...overrides
@@ -57,12 +56,11 @@ const expectBadRequest =
   }
 
 describe('registration', () => {
-  test('starts registration without exposing pending state', async () => {
+  test('starts registration without requiring or storing email', async () => {
     const { app, db } = await createTestServer()
     const start = await startRegistration(
       app
       , { username: 'alice'
-        , email: 'alice@example.com'
         , password: 'correct horse battery staple'
         , displayName: 'Alice'
         })
@@ -94,6 +92,7 @@ describe('registration', () => {
     expect(body).not.toContain('registrationRecord')
     expect(body).not.toContain('clientPublicKey')
     expect(body).not.toContain('serverLoginState')
+    expect(body).not.toContain('"email"')
 
     const row = await keyRow(db, start.document.id)
     const pending = JSON.parse(row?.material) as any
@@ -106,18 +105,17 @@ describe('registration', () => {
     expect(row?.expires_at).toBeGreaterThan(Date.now())
     expect(pending).toMatchObject(
       { username: 'alice'
-      , email: 'alice@example.com'
       , displayName: 'Alice'
       })
+    expect(pending.email).toBeUndefined()
     expect(pending.userId).toMatch(UUID_PATTERN)
   })
 
-  test('finishes registration and creates an owned user', async () => {
+  test('finishes registration and creates an owned user without email', async () => {
     const { app, db } = await createTestServer()
     const start = await startRegistration(
       app
       , { username: 'alice'
-        , email: 'alice@example.com'
         , password: 'correct horse battery staple'
         , displayName: 'Alice'
         })
@@ -139,9 +137,9 @@ describe('registration', () => {
     const document = await parsed(user)
     expect(document.data.attributes).toMatchObject(
       { username: 'alice'
-      , email: 'alice@example.com'
       , display_name: 'Alice'
       , owner: finish.document.userId
+      , email: null
       })
     expect(document.data.relationships?.keys).toBeUndefined()
 
@@ -176,17 +174,13 @@ describe('registration', () => {
     const empty =
       await register(
         app
-        , credentials(
-            { username: 'bob'
-            , email: 'bob@example.com'
-            , displayName: ''
-            }))
+        , credentials({ username: 'bob', displayName: '' }))
     const emptyUser =
       await parsed(await app.request(`/user/${empty.userId}`))
     expect(emptyUser.data.attributes.display_name).toBeNull()
   })
 
-  test('validates registration fields before starting OPAQUE', async () => {
+  test('validates registration fields without requiring email', async () => {
     const { app } = await createTestServer()
 
     await expectBadRequest(
@@ -198,12 +192,6 @@ describe('registration', () => {
     await expectBadRequest(
       await postKey(app, registrationBody({ username: 'a'.repeat(101) }))
       , 'username')
-    await expectBadRequest(
-      await postKey(app, registrationBody({ email: 'not-an-email' }))
-      , 'email')
-    await expectBadRequest(
-      await postKey(app, registrationBody({ email: 'a'.repeat(256) }))
-      , 'email')
     await expectBadRequest(
       await postKey(app, registrationBody({ displayName: 'a'.repeat(101) }))
       , 'displayName')
@@ -224,36 +212,35 @@ describe('registration', () => {
         app
         , registrationBody({ clientPublicKey: generateKeyPair().privateJwk }))
       , 'clientPublicKey')
+
+    // Email is not part of registration; unknown fields are rejected.
+    const withEmail =
+      await postKey(app, registrationBody({ email: 'alice@example.com' }))
+    expect(withEmail.status).toBe(400)
+
+    // Omitting email is fine.
+    const ok = await startRegistration(app, credentials({ username: 'carol' }))
+    expect(ok.response.status).toBe(201)
   })
 
-  test('rejects duplicate usernames and emails at start', async () => {
+  test('rejects duplicate usernames at start with a username-only conflict', async () => {
     const { app } = await createTestServer()
     await register(app, credentials())
 
-    const duplicateUsername =
-      await startRegistration(
-        app, credentials({ email: 'other@example.com' }))
-    expect(duplicateUsername.response.status).toBe(409)
-    expect((duplicateUsername.document as any).errors[0].title)
-      .toBe('Conflict')
-
-    const duplicateEmail =
-      await startRegistration(
-        app
-        , credentials(
-            { username: 'other'
-            , email: 'alice@example.com'
-            }))
-    expect(duplicateEmail.response.status).toBe(409)
+    const duplicate =
+      await startRegistration(app, credentials({ username: 'alice' }))
+    expect(duplicate.response.status).toBe(409)
+    const body = duplicate.document as any
+    expect(body.errors[0].title).toBe('Conflict')
+    expect(body.errors[0].detail).toBe('A user with that username already exists')
+    expect(JSON.stringify(body)).not.toContain('email')
   })
 
   test('rejects duplicates discovered when finishing a second registration', async () => {
     const { app, db } = await createTestServer()
 
     const first = await startRegistration(app, credentials())
-    const second =
-      await startRegistration(
-        app, credentials({ email: 'other@example.com' }))
+    const second = await startRegistration(app, credentials())
 
     expect(first.response.status).toBe(201)
     expect(second.response.status).toBe(201)
@@ -263,23 +250,12 @@ describe('registration', () => {
     const conflict = await finishRegistration(app, second)
     expect(conflict.response.status).toBe(409)
     expect((conflict.document as any).errors[0].title).toBe('Conflict')
+    expect((conflict.document as any).errors[0].detail)
+      .toBe('A user with that username already exists')
     expect(await userCount(db)).toBe(1)
 
     const row = await keyRow(db, second.document.id)
     expect(row?.consumed_at).toBeNull()
-  })
-
-  test('rejects duplicates discovered when finishing a second email', async () => {
-    const { app, db } = await createTestServer()
-
-    const first = await startRegistration(app, credentials())
-    const second =
-      await startRegistration(
-        app, credentials({ username: 'other' }))
-
-    expect((await finishRegistration(app, first)).response.status).toBe(200)
-    expect((await finishRegistration(app, second)).response.status).toBe(409)
-    expect(await userCount(db)).toBe(1)
   })
 
   test('rejects replayed and expired registration state', async () => {
@@ -324,19 +300,18 @@ describe('registration', () => {
     const { app } = await createTestServer()
     await register(app, credentials())
 
-    const loginStart =
+    const login =
       await startLogin(
         app
         , { username: 'alice'
           , password: 'correct horse battery staple'
           })
     const loginFinish = await patchKey(
-      app, loginStart.document.id, { registrationRecord: 'record' })
+      app, login.document.id, { registrationRecord: 'record' })
     expect(loginFinish.status).toBe(401)
 
     const registration =
-      await startRegistration(
-        app, credentials({ username: 'bob', email: 'bob@example.com' }))
+      await startRegistration(app, credentials({ username: 'bob' }))
     const registrationFinish = await patchKey(
       app, registration.document.id, { finishLoginRequest: 'request' })
     expect(registrationFinish.status).toBe(401)
@@ -360,8 +335,7 @@ describe('registration', () => {
       , [Date.now() - 1, uuidToBuffer(expired.document.id)])
 
     const fresh =
-      await startRegistration(
-        app, credentials({ username: 'bob', email: 'bob@example.com' }))
+      await startRegistration(app, credentials({ username: 'bob' }))
     expect(fresh.response.status).toBe(201)
     expect(await keyRow(db, expired.document.id)).toBeUndefined()
   })

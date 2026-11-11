@@ -50,7 +50,6 @@ export const signIn =
     // Purpose: register a user, log in, and return a session-bound client
     const input =
       { username: name
-      , email: `${name}@example.com`
       , password: PASSWORD
       , displayName: name
       }
@@ -126,13 +125,13 @@ export const createTagAs =
   }
 
 export const signedRequestAs =
-  (app: Hono, user: SignedIn, method: string, path: string, body?: unknown) => {
+  async (app: Hono, user: SignedIn, method: string, path: string, body?: unknown) => {
     // Purpose: send a request signed with the user's session key
     const text = body === undefined ? '' : JSON.stringify(body)
     const timestamp = String(Date.now())
     const nonce = Buffer.from(nacl.randomBytes(16)).toString('base64url')
     const message =
-      signingMessage(
+      await signingMessage(
         { method
         , path
         , sessionId: user.sessionId
