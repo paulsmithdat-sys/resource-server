@@ -74,7 +74,7 @@ export const createSerializers =
 
     for (const resource of registry.resources.values()) {
       const serializer = serializers.get(resource.type)!
-      const relators: Record<string, Relator<any, any>> = {}
+      const relators: Record<string, Relator<Row, Row>> = {}
 
       for (const label of
         (resource.type === primaryType

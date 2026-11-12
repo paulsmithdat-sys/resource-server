@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createApp } from '../src/server/app.ts'
+import { createApp } from '../src/server/app/index.ts'
 import { sendFinishLogin, startLogin } from './helpers/auth-client.ts'
 import
   { PASSWORD

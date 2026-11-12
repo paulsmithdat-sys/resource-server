@@ -40,3 +40,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# generated API docs (bun run docs)
+docs/api
+tools/typedoc/node_modules

@@ -61,7 +61,12 @@ export const createLimits =
       }
 
     return (
-      { start: async (username: string, client: string) => {
+      { register: async (client: string) => {
+          // Purpose: reject a registration start when one client is starting too many
+          if (await bump(`register:${client}`, limits.windowMs) > limits.startsPerWindow)
+            throw tooManyRequests('Too many registration attempts; try again later')
+        }
+      , start: async (username: string, client: string) => {
           // Purpose: reject a login start when the user is locked or the user or client is too busy
           const now = Date.now()
           await db.run('DELETE FROM `auth_limit` WHERE `expires_at` <= ?', [now])

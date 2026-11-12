@@ -1,3 +1,4 @@
+import type { AppContext, Next } from './context.ts'
 import type { Operation } from '../db/schema-types.ts'
 import { quote, uuidString } from '../db/views.ts'
 import type { Row, RowDatabase } from './database.ts'
@@ -24,7 +25,7 @@ const MAX_INHERIT_DEPTH = 3
 type Grant = 'can_read' | 'can_write'
 
 export const viewerOf =
-  (c: any): Viewer => (
+  (c: AppContext): Viewer => (
     { userId: c.get('userId')
     , anonymous: c.get('anonymous') === true
     , roles: c.get('roles') ?? []
@@ -54,7 +55,7 @@ const sharedWith =
       })
   }
 
-const any =
+const anyOf =
   (scopes: Scope[]): Scope => {
     // Purpose: OR scopes together; an unrestricted scope makes the result unrestricted
     if (scopes.some(x => x.sql === '')) return NONE
@@ -112,7 +113,7 @@ export const readScope =
         })
     }
 
-    return scopes.length === 0 ? NEVER : any(scopes)
+    return scopes.length === 0 ? NEVER : anyOf(scopes)
   }
 
 export const writeScope =
@@ -126,7 +127,7 @@ export const writeScope =
     if (resource.access.shareable)
       scopes.push(
         sharedWith(resource.table, `${a}.\`id\``, viewer.userId, 'can_write'))
-    return any(scopes)
+    return anyOf(scopes)
   }
 
 export const deleteScope =

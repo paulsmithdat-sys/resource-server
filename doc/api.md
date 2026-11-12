@@ -95,6 +95,7 @@ or auth, uses `application/vnd.api+json`.
 ```
 
 Hidden tables, hidden columns, and hidden relations never appear in the catalog.
+When the server enforces sessions the catalog needs one too.
 The `owner` attribute appears on every exposed resource.
 
 ## Query parameters

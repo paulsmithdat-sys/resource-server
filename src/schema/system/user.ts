@@ -5,10 +5,12 @@ export const userSchema =
   , additionalProperties: false
   , description: "An application user"
   , "x-system": true
+  , "x-access": { "create": "none" }
   , properties:
     { username:
-      { description: "Unique login name"
+      { description: "Unique login name, set at registration and never changed"
       , type: "string"
+      , readOnly: true
       , minLength: 1
       , maxLength: 100
       , "x-unique": true
@@ -16,6 +18,7 @@ export const userSchema =
     , email:
       { description: "Email address"
       , type: "string"
+      , format: "email"
       , maxLength: 255
       }
     , display_name:

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPair } from '../src/auth/keys.ts'
-import { REGISTRATION_TTL_MS } from '../src/auth/service.ts'
+import { REGISTRATION_TTL_MS } from '../src/auth/service/index.ts'
 import { UUID_PATTERN, canonicalUuid, uuidToBuffer } from '../src/server/uuid.ts'
 import
   { completeClientRegistration

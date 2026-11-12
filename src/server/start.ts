@@ -1,11 +1,12 @@
 import { buildSchema } from '../db/build-schema.ts'
 import { applyMigrations } from '../db/migrate.ts'
 import type { LoadedSchema } from '../db/schema-types.ts'
-import { createApp } from './app.ts'
+import type { Database } from '../db/open.ts'
+import { createApp } from './app/index.ts'
 import { createRowDatabase } from './database.ts'
 
 export const createServerApp =
-  async (options: { loaded: LoadedSchema[], db: any, migrationsFolder: string }) => {
+  async (options: { loaded: LoadedSchema[], db: Database, migrationsFolder: string }) => {
     // Purpose: migrate the database, then build the HTTP app from the environment settings
     const opaqueServerSetup = process.env.OPAQUE_SERVER_SETUP
     if (!opaqueServerSetup)

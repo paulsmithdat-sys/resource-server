@@ -1,3 +1,9 @@
+/**
+ * Browser and Node client for a resource server: OPAQUE registration and
+ * login, session storage, JSON:API requests and optional request signing.
+ *
+ * @packageDocumentation
+ */
 import
   { createAuth
   , type AuthClient
@@ -24,7 +30,7 @@ import
   } from './session.ts'
 
 export { ResourceServerError } from './errors.ts'
-export { createHttp, type FetchLike, type HttpClient } from './http.ts'
+export { createHttp, type FetchLike, type HttpClient, type HttpOptions } from './http.ts'
 export
   { browserStorage
   , memoryStorage

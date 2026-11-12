@@ -1,0 +1,9 @@
+{
+  "name": "resource-server-docs-tooling",
+  "private": true,
+  "description": "TypeDoc needs the JavaScript TypeScript API (5.x), while the project itself uses the native TypeScript 7 compiler, so the docs tooling lives in its own folder.",
+  "devDependencies": {
+    "typedoc": "^0.28.20",
+    "typescript": "~5.9.0"
+  }
+}

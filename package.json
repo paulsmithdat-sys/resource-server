@@ -27,17 +27,19 @@
     "dev": "bun --watch src/server/index.ts",
     "start": "bun src/server/index.ts",
     "test": "bun test",
-    "cli": "bun src/cli.ts"
+    "cli": "bun src/cli.ts",
+    "pretest": "bun src/db/generate-migration.ts",
+    "docs": "bun install --cwd tools/typedoc && tools/typedoc/node_modules/.bin/typedoc",
+    "docs:check": "bun install --cwd tools/typedoc && tools/typedoc/node_modules/.bin/typedoc --emit none"
   },
   "dependencies": {
-    "@libsql/client": "^0.18.0",
     "@serenity-kit/opaque": "^1.1.0",
     "@tursodatabase/database": "^0.8.3",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "dotenv": "^18.0.10",
-    "drizzle-kit": "^1.0.0-rc.5-ab785fc",
-    "drizzle-orm": "^1.0.0-rc.5-ab785fc",
+    "drizzle-kit": "1.0.0-rc.5-ab785fc",
+    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "hono": "^4.13.18",
     "ts-japi": "^1.12.8",
     "tweetnacl": "^1.0.3",
@@ -45,7 +47,6 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "typedoc": "^0.28.20",
     "typescript": "^7.0.2"
   }
 }

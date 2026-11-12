@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createResourceServerClient, memoryStorage } from './client/index.ts'
 
 const cli = join(import.meta.dir, 'cli.ts')
 let project = ''
@@ -74,8 +75,9 @@ describe('resource-server init and serve', () => {
     expect(result.out).toContain('OPAQUE_SERVER_SETUP is required')
   })
 
-  test('serve starts and exposes the schema', async () => {
+  test('serve starts and enforces sessions on every resource', async () => {
     const port = 5900 + Math.floor(Math.random() * 90)
+    const baseUrl = `http://localhost:${port}`
     const child =
       Bun.spawn(
         [process.execPath, cli, 'serve', '--port', String(port)],
@@ -85,12 +87,18 @@ describe('resource-server init and serve', () => {
         , stderr: 'ignore'
         })
     try {
-      let body: any
-      for (let i = 0; i < 50 && !body; i++) {
-        body = await fetch(`http://localhost:${port}/`).then(x => x.json()).catch(() => undefined)
-        if (!body) await Bun.sleep(200)
+      let status: number | undefined
+      for (let i = 0; i < 50 && status === undefined; i++) {
+        status = await fetch(`${baseUrl}/`).then(x => x.status).catch(() => undefined)
+        if (status === undefined) await Bun.sleep(200)
       }
-      const types = body.meta.resources.map((x: any) => x.type)
+      // Sessions are enforced, so the catalog is closed to anonymous callers
+      expect(status).toBe(401)
+
+      const client = createResourceServerClient({ baseUrl, storage: memoryStorage() })
+      await client.register({ username: 'tester', password: 'correct horse battery staple' }, { signIn: true })
+      const catalog = await client.get<{ meta: { resources: { type: string }[] } }>('/')
+      const types = catalog.meta.resources.map(x => x.type)
       expect(types).toContain('book')
       // Both YAML documents from one file become their own tables
       expect(types).toContain('magazine')

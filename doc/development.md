@@ -69,7 +69,8 @@ bun run db:migrate
 # reset the development database and migration baseline
 bun run db:reset
 
-# run all tests
+# run all tests (`bun run test` generates the migrations first; plain `bun test`
+# needs `bun run db:generate` once, because .drizzle is git-ignored)
 bun test
 
 # type-check

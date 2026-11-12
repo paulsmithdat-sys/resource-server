@@ -4,6 +4,9 @@ import type { DatabaseOpts } from '@tursodatabase/database-common'
 const options: DatabaseOpts =
   { experimental: ['views', 'custom_types', 'encryption', 'vacuum'] }
 
+/** The opened database connection. */
+export type Database = Awaited<ReturnType<typeof openDatabase>>
+
 export const openDatabase =
   async (path = process.env.DB_PATH ?? '.db') => {
     // Purpose: open the database file with foreign keys enforced

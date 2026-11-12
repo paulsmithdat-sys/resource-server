@@ -1,0 +1,12 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/client/index.ts"],
+  "out": "docs/api",
+  "tsconfig": "tsconfig.json",
+  "name": "resource-server",
+  "readme": "README.md",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "validation": { "notExported": true, "invalidLink": true, "notDocumented": false },
+  "treatWarningsAsErrors": true
+}

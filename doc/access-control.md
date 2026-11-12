@@ -19,7 +19,7 @@ key out gives the secure default shown below.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `read` | `session` | `public`: requests without a session may read rows whose visibility is `public` |
-| `create` | `session` | `public`: anonymous requests may create rows, which have no owner. `role`: only holders of a role that grants `create` may create rows |
+| `create` | `session` | `public`: anonymous requests may create rows, which have no owner. `role`: only holders of a role that grants `create` may create rows. `none`: the API never creates rows; the server does (the `user` resource, created by registration) |
 | `visibility` | all values except `shared` (plus `shared` when shareable) | The values an owner may choose, enforced by a CHECK constraint |
 | `defaultVisibility` | `private` | The visibility a new row gets |
 | `shareable` | `false` | `true` derives a `<table>_share` table so owners can grant access to users and groups |
@@ -69,7 +69,10 @@ Anonymous creates link only to public rows. A row created anonymously with
 
 A user holds a role through a row in the system `user_role` resource, which only
 admins can create, read, or delete. Usernames listed in `SERBER_ADMINS` always
-hold `admin`, which is how the first admin is set up. Groups never confer roles.
+hold `admin`, which is how the first admin is set up. A username is fixed at
+registration and cannot be changed through the API, so nobody can take an admin
+name by renaming. Register the admin accounts before opening registration to
+the public, because whoever registers a listed name first holds it. Groups never confer roles.
 
 A resource's `roles` map grants named roles operations on every row:
 

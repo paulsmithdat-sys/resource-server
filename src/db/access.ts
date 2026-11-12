@@ -68,7 +68,7 @@ export const normalizeAccess =
 
     return (
       { read: level('read', ['session', 'public'])
-      , create: level('create', ['session', 'public', 'role'])
+      , create: level('create', ['session', 'public', 'role', 'none'])
       , visibility
       , defaultVisibility
       , shareable: shareable as boolean

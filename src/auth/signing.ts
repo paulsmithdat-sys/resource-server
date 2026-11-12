@@ -1,8 +1,13 @@
+import type { AppContext, Next } from '../server/context.ts'
 import nacl from 'tweetnacl'
 import type { RowDatabase } from '../server/database.ts'
 import { unauthorized } from '../server/errors.ts'
 import { insert } from '../server/sql.ts'
+import { signingMessage } from '../client/crypto.ts'
 import { parsePublicJwk } from './keys.ts'
+
+// One implementation of the signed bytes, shared with the client so they cannot drift
+export { signingMessage }
 
 export const SIGNATURE_WINDOW_MS = 60_000
 export const SIGNATURE_HEADER = 'x-serber-signature'
@@ -11,33 +16,8 @@ export const NONCE_HEADER = 'x-serber-nonce'
 
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 
-export type SignedParts =
-  { method: string
-  , path: string
-  , sessionId: string
-  , timestamp: string
-  , nonce: string
-  , body: Uint8Array
-  }
-
-export const signingMessage =
-  (parts: SignedParts) => {
-    // Purpose: the exact bytes a client signs: method, path+query, session, time, nonce, body digest
-    const digest =
-      new Bun.CryptoHasher('sha256').update(parts.body).digest('base64url')
-    return new TextEncoder().encode(
-      [ 'serber-signature-v1'
-      , parts.method.toUpperCase()
-      , parts.path
-      , parts.sessionId.toLowerCase()
-      , parts.timestamp
-      , parts.nonce
-      , digest
-      ].join('\n'))
-  }
-
 export const verifySignedRequest =
-  async (c: any, db: RowDatabase, required: boolean) => {
+  async (c: AppContext, db: RowDatabase, required: boolean) => {
     // Purpose: check a request's Ed25519 signature and burn its nonce; returns whether the request was signed
     const signature = c.req.header(SIGNATURE_HEADER)
     const timestamp = c.req.header(TIMESTAMP_HEADER)
@@ -60,10 +40,10 @@ export const verifySignedRequest =
     const url = new URL(c.req.url)
     const body = new Uint8Array(await c.req.raw.clone().arrayBuffer())
     const message =
-      signingMessage(
+      await signingMessage(
         { method: c.req.method
         , path: url.pathname + url.search
-        , sessionId: c.get('sessionId')
+        , sessionId: c.get('sessionId') as string
         , timestamp
         , nonce
         , body

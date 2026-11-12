@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
+import type { RowDatabase } from '../src/server/database.ts'
 import { uuidToBuffer } from '../src/server/uuid.ts'
 import { postDocument, createTestServer } from './helpers/test-server.ts'
 
@@ -11,12 +12,11 @@ const documentOf =
   }
 
 const createUser =
-  async ( app: any
-        , attributes: Record<string, unknown>) => {
-    const response =
-      await postDocument(app, { type: 'user', attributes })
-    expect(response.status).toBe(201)
-    return await documentOf(response)
+  async (db: RowDatabase, username: string) => {
+    // Purpose: insert a user row directly, because the API never creates users
+    const id = Bun.randomUUIDv7()
+    await db.run('INSERT INTO `user` (`id`, `username`) VALUES (?, ?)', [uuidToBuffer(id), username])
+    return { id }
   }
 
 const createGroup =
@@ -60,10 +60,8 @@ describe('owner', () => {
   })
 
   test('ignores an owner id sent by the client', async () => {
-    const { app } = await createTestServer()
-    const user =
-      await createUser(
-        app, { username: 'alice' })
+    const { app, db } = await createTestServer()
+    const user = await createUser(db, 'alice')
 
     for (const owner of [user.id, Bun.randomUUIDv7()]) {
       const response =
@@ -89,9 +87,7 @@ describe('owner', () => {
 
   test('is set to null when the owning user is deleted', async () => {
     const { app, db } = await createTestServer()
-    const user =
-      await createUser(
-        app, { username: 'alice' })
+    const user = await createUser(db, 'alice')
     const tag = await documentOf(
       await createTag(app, { name: 'owned', kind: 'topic' }))
     await db.run(

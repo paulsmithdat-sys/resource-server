@@ -20,13 +20,13 @@ type Options =
   }
 
 const signed =
-  (app: any, user: SignedIn, method: string, path: string, body?: unknown, options: Options = {}) => {
+  async (app: any, user: SignedIn, method: string, path: string, body?: unknown, options: Options = {}) => {
     // Purpose: send a request signed with the user's session key (options let tests tamper)
     const text = body === undefined ? '' : JSON.stringify(body)
     const timestamp = String(options.timestamp ?? Date.now())
     const nonce = options.nonce ?? Buffer.from(nacl.randomBytes(16)).toString('base64url')
     const message =
-      signingMessage(
+      await signingMessage(
         { method
         , path: options.signPath ?? path
         , sessionId: user.sessionId

@@ -1,7 +1,7 @@
 import { sessionKeyId } from '../src/auth/session-key.ts'
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPair } from '../src/auth/keys.ts'
-import { LOGIN_TTL_MS, SESSION_TTL_MS } from '../src/auth/service.ts'
+import { LOGIN_TTL_MS, SESSION_TTL_MS } from '../src/auth/service/index.ts'
 import { UUID_PATTERN, canonicalUuid, uuidToBuffer } from '../src/server/uuid.ts'
 import
   { completeClientLogin
@@ -188,22 +188,10 @@ describe('login', () => {
   test('rejects login for a generic user without a registration record', async () => {
     const { app, db } = await createTestServer()
 
-    const created =
-      await app.request(
-        '/user'
-        , { method: 'POST'
-          , headers: { 'content-type': 'application/vnd.api+json' }
-          , body: JSON.stringify(
-              { data:
-                { type: 'user'
-                , attributes:
-                    { username: 'legacy'
-                    }
-                }
-              })
-          })
-    expect(created.status).toBe(201)
-    const userId = (await parsed(created)).data.id as string
+    const userId = Bun.randomUUIDv7()
+    await db.run(
+      'INSERT INTO `user` (`id`, `username`) VALUES (?, ?)'
+      , [uuidToBuffer(userId), 'legacy'])
 
     const start =
       await startLogin(

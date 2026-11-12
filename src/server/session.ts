@@ -1,3 +1,4 @@
+import type { AppContext, Next } from './context.ts'
 import type { RowDatabase } from './database.ts'
 import { unauthorized } from './errors.ts'
 import { sessionKeyId } from '../auth/session-key.ts'
@@ -10,7 +11,7 @@ import { canonicalUuid, uuidToBuffer } from './uuid.ts'
  */
 export const sessionMiddleware =
   (db: RowDatabase) =>
-  async (c: any, next: any) => {
+  async (c: AppContext, next: Next) => {
     const header = c.req.header('authorization') ?? ''
     if (!header.startsWith('Bearer '))
       throw unauthorized('Session is required')

@@ -50,6 +50,7 @@ naming the schema and the property.
 | `format` | Specialized type mapping (`uuid`, `date-time`, `byte`, `email`) |
 | `enum` | Text column with enum typing |
 | `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `multipleOf`, `items`, `properties`, `required` | Validation metadata; the full property schema is enforced on writes |
+| `readOnly` | Standard JSON Schema: clients can read the attribute but writes to it are rejected with 400 |
 | `x-unique` | Unique constraint |
 | `x-primary` | Custom primary key marker |
 | `x-system` | Always-loaded system schema |

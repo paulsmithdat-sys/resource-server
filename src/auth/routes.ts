@@ -1,9 +1,10 @@
 import type { Context, Hono } from 'hono'
+import type { Env } from '../server/context.ts'
 import { getConnInfo } from 'hono/bun'
 import { badRequest } from '../server/errors.ts'
 import { isObject } from '../server/guard.ts'
 import { readJson } from '../server/io.ts'
-import type { AuthService } from './service.ts'
+import type { AuthService } from './service/index.ts'
 
 const clientAddress =
   (c: Context) => {
@@ -16,7 +17,7 @@ const clientAddress =
   }
 
 export const registerAuthRoutes =
-  (app: Hono, auth: AuthService) => {
+  (app: Hono<Env>, auth: AuthService) => {
     app.post('/key', async c => {
       const body = await readJson(c)
       if (!isObject(body))

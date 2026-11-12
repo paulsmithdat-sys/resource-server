@@ -5,7 +5,7 @@ import { connect } from '@tursodatabase/database'
 import type { Hono } from 'hono'
 import { buildSchema } from '../../src/db/build-schema.ts'
 import { loadSchemas } from '../../src/db/load-schemas.ts'
-import { createApp } from '../../src/server/app.ts'
+import { createApp } from '../../src/server/app/index.ts'
 import { createRowDatabase } from '../../src/server/database.ts'
 import { seedDocuments } from '../../src/seed/index.ts'
 

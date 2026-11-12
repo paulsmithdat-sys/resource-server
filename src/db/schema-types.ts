@@ -1,3 +1,13 @@
+import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
+
+/** The chainable column-builder methods this project uses. */
+export type ColumnBuilder =
+  { default(value: unknown): ColumnBuilder
+  , notNull(): ColumnBuilder
+  , unique(): ColumnBuilder
+  , primaryKey(): ColumnBuilder
+  }
+
 export type Cardinality = 'one' | 'many'
 
 export type Visibility = 'private' | 'shared' | 'authenticated' | 'public'
@@ -8,7 +18,7 @@ export type Operation = 'read' | 'create' | 'update' | 'delete'
 export type AccessConfig =
   { read: 'session' | 'public'
   // 'role': only holders of a role that grants create may create rows
-  , create: 'session' | 'public' | 'role'
+  , create: 'session' | 'public' | 'role' | 'none'
   , visibility: Visibility[]
   , defaultVisibility: Visibility
   , shareable: boolean
@@ -41,6 +51,8 @@ export type JSONSchemaProperty =
   // non-null member before schema building; nullability comes from `required`.
   { type?: string | string[]
   , format?: string
+  // Standard JSON Schema: clients may read the attribute but never write it
+  , readOnly?: boolean
   , description?: string
   , enum?: readonly unknown[]
   , default?: unknown
@@ -85,7 +97,7 @@ export type ColumnDef =
   { key: string
   , columnName: string
   , schema: JSONSchemaProperty
-  , drizzle: any
+  , drizzle: ColumnBuilder
   , required: boolean
   , injected: boolean
   , exposed: boolean
@@ -102,7 +114,7 @@ export type ForeignKeyDef =
 export type TableDef =
   { key: string
   , tableName: string
-  , drizzleSchema: any
+  , drizzleSchema: SQLiteTable
   , schema: JSONSchema
   , columns: ColumnDef[]
   , isSystem: boolean

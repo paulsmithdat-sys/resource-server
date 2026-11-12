@@ -347,3 +347,16 @@ describe('key type dispatch', () => {
     }
   })
 })
+
+describe('registration limits', () => {
+  test('rate limits registration starts per client, so nobody can flood the key table', async () => {
+    const { app } = await createTestServer()
+
+    const statuses: number[] = []
+    for (let i = 0; i < 31; i++)
+      statuses.push((await startRegistration(app, credentials({ username: `user${i}` }))).response.status)
+
+    expect(statuses.slice(0, 30).every(x => x === 201)).toBe(true)
+    expect(statuses[30]).toBe(429)
+  })
+})

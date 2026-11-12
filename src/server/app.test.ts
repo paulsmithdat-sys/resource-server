@@ -6,7 +6,7 @@ import
   , type JSONSchema
   , type LoadedSchema
   } from '../db/schema-types.ts'
-import { createApp } from './app.ts'
+import { createApp } from './app/index.ts'
 import type { Row, RowDatabase } from './database.ts'
 
 const loadedSchema =

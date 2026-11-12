@@ -1,8 +1,8 @@
 import { badRequest } from '../server/errors.ts'
 import { isObject } from '../server/guard.ts'
-import { ajv, errorField } from '../server/ajv.ts'
+import { ajv, errorField, type Validator } from '../server/ajv.ts'
 
-type ValidateFn = (data: unknown) => boolean
+type ValidateFn = Validator
 
 const compile =
   (schema: unknown): ValidateFn => ajv.compile(schema as Record<string, unknown>)

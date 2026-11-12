@@ -1,6 +1,6 @@
 import { sessionKeyId } from '../src/auth/session-key.ts'
 import { describe, expect, test } from 'bun:test'
-import { SESSION_TTL_MS } from '../src/auth/service.ts'
+import { SESSION_TTL_MS } from '../src/auth/service/index.ts'
 import { canonicalUuid, uuidToBuffer } from '../src/server/uuid.ts'
 import
   { credentials

@@ -47,7 +47,7 @@ export const keySchema =
       , column: "id"
       , cardinality: "one"
       , foreignKey: "user_id"
-      , onDelete: "restrict"
+      , onDelete: "cascade"
       }
     }
   }
