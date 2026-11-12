@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { buildSchema } from './build-schema.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
 import { buildOne, columnConfig, loadedSchema } from './build-schema.helpers.ts'
-import { pascalCase, snakeCase } from './schema-types.ts'
+import { pascalCase, snakeCase } from '../../../src/db/schema-types.ts'
 
 describe('snakeCase and pascalCase', () => {
   test('convert titles to table and export names', () => {

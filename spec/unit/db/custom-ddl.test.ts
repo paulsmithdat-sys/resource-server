@@ -7,9 +7,9 @@ import
   , removedCustomDdl
   , sortHashes
   , stateFromEntries
-  } from './custom-ddl.ts'
-import { buildSchema } from './build-schema.ts'
-import type { JSONSchema, LoadedSchema } from './schema-types.ts'
+  } from '../../../src/db/custom-ddl.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
+import type { JSONSchema, LoadedSchema } from '../../../src/db/schema-types.ts'
 
 const loadedSchema =
   (schema: JSONSchema): LoadedSchema => (

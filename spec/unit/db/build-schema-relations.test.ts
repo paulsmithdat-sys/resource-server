@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
-import { buildSchema } from './build-schema.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
 import { buildOne, loadedSchema, userSchema } from './build-schema.helpers.ts'
-import { type JSONSchema } from './schema-types.ts'
+import { type JSONSchema } from '../../../src/db/schema-types.ts'
 
 describe('buildSchema relations', () => {
   test('keeps relation metadata and validates its shape', () => {

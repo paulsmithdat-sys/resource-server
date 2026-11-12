@@ -1,11 +1,11 @@
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
-import { buildSchema } from './build-schema.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
 import
   { pascalCase
   , snakeCase
   , type JSONSchema
   , type LoadedSchema
-  } from './schema-types.ts'
+  } from '../../../src/db/schema-types.ts'
 
 /** Wrap a schema as if it had been loaded from a file. */
 export const loadedSchema =

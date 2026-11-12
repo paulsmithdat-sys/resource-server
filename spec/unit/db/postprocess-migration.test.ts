@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { CustomDdlEntry } from './custom-ddl.ts'
+import type { CustomDdlEntry } from '../../../src/db/custom-ddl.ts'
 import
   { addIfNotExists
   , appendCustomDdl
   , postprocessMigration
-  } from './postprocess-migration.ts'
+  } from '../../../src/db/postprocess-migration.ts'
 
 const triggerEntry: CustomDdlEntry =
   { key: 'trigger:widget'

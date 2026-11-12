@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildSchema } from './build-schema.ts'
-import { buildExportsSource, writeExports } from './generate-exports.ts'
-import type { JSONSchema, LoadedSchema } from './schema-types.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
+import { buildExportsSource, writeExports } from '../../../src/db/generate-exports.ts'
+import type { JSONSchema, LoadedSchema } from '../../../src/db/schema-types.ts'
 
 const loadedSchema =
   (schema: JSONSchema): LoadedSchema => (

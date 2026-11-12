@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { connect } from '@tursodatabase/database'
-import { applyMigrations } from './migrate.ts'
+import { applyMigrations } from '../../../src/db/migrate.ts'
 
 /** List the user tables in a database. */
 const tableNames =

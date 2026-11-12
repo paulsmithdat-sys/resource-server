@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { buildSchema } from '../db/build-schema.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
 import
   { pascalCase
   , snakeCase
   , type JSONSchema
   , type LoadedSchema
-  } from '../db/schema-types.ts'
-import { createApp } from './app/index.ts'
-import type { Row, RowDatabase } from './database.ts'
+  } from '../../../src/db/schema-types.ts'
+import { createApp } from '../../../src/server/app/index.ts'
+import type { Row, RowDatabase } from '../../../src/server/database.ts'
 
 const loadedSchema =
   (schema: JSONSchema): LoadedSchema => (

@@ -2,14 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildSchema } from './build-schema.ts'
+import { buildSchema } from '../../../src/db/build-schema.ts'
 import
   { buildCustomDdl
   , diffCustomDdl
   , stateFromEntries
-  } from './custom-ddl.ts'
-import { writeExports } from './generate-exports.ts'
-import { loadSchemas } from './load-schemas.ts'
+  } from '../../../src/db/custom-ddl.ts'
+import { writeExports } from '../../../src/db/generate-exports.ts'
+import { loadSchemas } from '../../../src/db/load-schemas.ts'
 
 describe('generation idempotency', () => {
   test('two identical runs produce identical output and no custom DDL changes', async () => {

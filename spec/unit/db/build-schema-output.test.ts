@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildSchema, createUpdatedTrigger } from './build-schema.ts'
+import { buildSchema, createUpdatedTrigger } from '../../../src/db/build-schema.ts'
 import { buildOne, loadedSchema, userSchema } from './build-schema.helpers.ts'
 
 describe('buildSchema output', () => {

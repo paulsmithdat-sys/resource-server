@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createResourceServerClient, memoryStorage } from './client/index.ts'
+import { createResourceServerClient, memoryStorage } from '../../src/client/index.ts'
 
-const cli = join(import.meta.dir, 'cli.ts')
+const cli = join(import.meta.dir, '../../src/cli.ts')
 let project = ''
 
 const book =
