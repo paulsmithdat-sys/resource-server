@@ -28,6 +28,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .db-wal
 .db-journal
 .drizzleExports/
+.drizzle
 
 # caches
 .eslintcache
