@@ -49,7 +49,7 @@ naming the schema and the property.
 | `default` | Column default |
 | `format` | Specialized type mapping (`uuid`, `date-time`, `byte`, `email`) |
 | `enum` | Text column with enum typing |
-| `minLength`, `maxLength` | Validation metadata |
+| `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `multipleOf`, `items`, `properties`, `required` | Validation metadata; the full property schema is enforced on writes |
 | `x-unique` | Unique constraint |
 | `x-primary` | Custom primary key marker |
 | `x-system` | Always-loaded system schema |

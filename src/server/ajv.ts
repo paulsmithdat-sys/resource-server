@@ -11,7 +11,13 @@ export const errorField =
   (validator: unknown, fallback: string): string => {
     // Purpose: name the field behind an AJV validator's first error
     const error = (validator as any).errors?.[0]
-    return error?.instancePath?.replace(/^\//, '')
-      || error?.params?.missingProperty
-      || fallback
+    if (!error) return fallback
+
+    const path =
+      String(error.instancePath ?? '')
+        .replace(/^\//, '')
+        .replaceAll('/', '.')
+    const property =
+      error.params?.missingProperty ?? error.params?.additionalProperty
+    return [path, property].filter(Boolean).join('.') || fallback
   }

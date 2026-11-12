@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { parseAccept, type Accept } from 'hono/utils/accept'
 import { ErrorSerializer, JapiError } from 'ts-japi'
 import { createAuthService } from '../auth/service.ts'
 import { registerAuthRoutes } from '../auth/routes.ts'
@@ -70,31 +71,32 @@ const errorDocument =
         , ...(parameter ? { source: { parameter } } : {})
         }))
 
-const plainMediaType =
-  (value: string) =>
-    // Purpose: true when a media type carries no parameters other than ext, profile or q
-    value.split(';').slice(1)
-      .map(x => x.trim().split('=')[0]!.toLowerCase())
-      .every(x => x === '' || x === 'ext' || x === 'profile' || x === 'q')
+const jsonApiMediaType =
+  (value: Accept, allowQuality: boolean) =>
+    // Purpose: true when a parsed media type is JSON:API with only allowed parameters
+    value.type.toLowerCase() === JSON_API
+    && value.q > 0
+    && Object.keys(value.params).every(name => {
+      const key = name.toLowerCase()
+      return key === 'ext' || key === 'profile' || (allowQuality && key === 'q')
+    })
 
 const negotiate =
   (c: any, nested: boolean, known: boolean) => {
     // Purpose: apply JSON:API content negotiation (406 for Accept, 415 for Content-Type)
     const ours =
-      (c.req.header('accept') ?? '')
-        .split(',')
-        .map((x: string) => x.trim())
-        .filter((x: string) => x.toLowerCase().startsWith(JSON_API))
-    if (ours.length > 0 && !ours.some(plainMediaType))
+      parseAccept(c.req.header('accept') ?? '')
+        .filter(value => value.type.toLowerCase() === JSON_API)
+    if (ours.length > 0 && !ours.some(value => jsonApiMediaType(value, true)))
       throw notAcceptable(
-        `Accept must include ${JSON_API} without media type parameters`)
+        `Accept must include ${JSON_API} without unsupported media type parameters`)
 
     const method = c.req.method
     if (known
         && (['POST', 'PUT', 'PATCH'].includes(method)
             || (method === 'DELETE' && nested))) {
-      const type = c.req.header('content-type') ?? ''
-      if (!type.toLowerCase().startsWith(JSON_API) || !plainMediaType(type))
+      const [type] = parseAccept(c.req.header('content-type') ?? '')
+      if (!type || !jsonApiMediaType(type, false))
         throw unsupportedMediaType(`Content-Type must be ${JSON_API}`)
     }
   }
