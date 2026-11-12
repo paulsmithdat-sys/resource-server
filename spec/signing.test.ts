@@ -26,7 +26,7 @@ const signed =
     const timestamp = String(options.timestamp ?? Date.now())
     const nonce = options.nonce ?? Buffer.from(nacl.randomBytes(16)).toString('base64url')
     const message =
-      await signingMessage(
+      signingMessage(
         { method
         , path: options.signPath ?? path
         , sessionId: user.sessionId

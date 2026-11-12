@@ -1,3 +1,4 @@
+import { sha256 } from '@noble/hashes/sha2.js'
 import nacl from 'tweetnacl'
 
 /** A public Ed25519 key as a JSON Web Key. */
@@ -18,67 +19,20 @@ export type KeyPair =
   , secretKey: Uint8Array
   }
 
-const alphabet =
-  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
-
-const reverse =
-  new Map(
-    Array.from(alphabet).map((character, index) => [character, index] as const))
-
-/**
- * Encodes bytes as unpadded base64url without relying on Buffer or btoa, so the
- * same code runs in browsers, Bun, and Node.
- */
+/** Encodes bytes as unpadded base64url. */
 export const bytesToBase64Url =
-  (bytes: Uint8Array) => {
-    let value = ''
-    for (let index = 0; index < bytes.length; index += 3) {
-      const first = bytes[index]!
-      const second = bytes[index + 1]
-      const third = bytes[index + 2]
-
-      value += alphabet[first >> 2]!
-      value += alphabet[((first & 0x03) << 4) | ((second ?? 0) >> 4)]!
-      if (second === undefined) break
-
-      value += alphabet[((second & 0x0f) << 2) | ((third ?? 0) >> 6)]!
-      if (third === undefined) break
-
-      value += alphabet[third & 0x3f]!
-    }
-    return value
-  }
+  (bytes: Uint8Array) => bytes.toBase64({ alphabet: 'base64url', omitPadding: true })
 
 /**
- * Decodes unpadded base64url into bytes. Rejects characters outside the
- * base64url alphabet and non-zero trailing bits.
+ * Decodes unpadded base64url into bytes. Rejects anything that is not the
+ * canonical encoding: other characters, padding, or non-zero trailing bits.
  */
 export const base64UrlToBytes =
   (value: string) => {
-    if (value.length > 0 && !/^[A-Za-z0-9_-]+$/.test(value))
+    const bytes = Uint8Array.fromBase64(value, { alphabet: 'base64url' })
+    if (bytesToBase64Url(bytes) !== value)
       throw new Error('Invalid base64url value')
-
-    const bytes: number[] = []
-    let accumulator = 0
-    let bits = 0
-
-    for (const character of value) {
-      const digit = reverse.get(character)
-      if (digit === undefined)
-        throw new Error('Invalid base64url value')
-
-      accumulator = (accumulator << 6) | digit
-      bits += 6
-      if (bits >= 8) {
-        bits -= 8
-        bytes.push((accumulator >> bits) & 0xff)
-      }
-    }
-
-    if (bits > 0 && (accumulator & ((1 << bits) - 1)) !== 0)
-      throw new Error('Invalid base64url value')
-
-    return Uint8Array.from(bytes)
+    return bytes
   }
 
 /**
@@ -105,14 +59,7 @@ export const generateKeyPair =
       })
   }
 
-const sha256Base64Url =
-  async (bytes: Uint8Array) => {
-    if (globalThis.crypto?.subtle === undefined)
-      throw new Error('Web Crypto is required to sign requests')
-    const digest = await globalThis.crypto.subtle.digest(
-      'SHA-256', new Uint8Array(bytes))
-    return bytesToBase64Url(new Uint8Array(digest))
-  }
+const sha256Base64Url = (bytes: Uint8Array) => bytesToBase64Url(sha256(bytes))
 
 export type SigningParts =
   { method: string
@@ -127,8 +74,8 @@ export type SigningParts =
  * Builds the exact bytes the server verifies for a signed request.
  */
 export const signingMessage =
-  async (parts: SigningParts) => {
-    const digest = await sha256Base64Url(parts.body)
+  (parts: SigningParts) => {
+    const digest = sha256Base64Url(parts.body)
     return new TextEncoder().encode(
       [ 'serber-signature-v1'
       , parts.method.toUpperCase()
@@ -145,9 +92,5 @@ export const sign =
     bytesToBase64Url(
       nacl.sign.detached(message, base64UrlToBytes(secretKey)))
 
-export const randomNonce =
-  () => {
-    if (globalThis.crypto?.getRandomValues === undefined)
-      throw new Error('Web Crypto is required to sign requests')
-    return bytesToBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(16)))
-  }
+/** A fresh random nonce for one signed request. */
+export const randomNonce = () => bytesToBase64Url(nacl.randomBytes(16))

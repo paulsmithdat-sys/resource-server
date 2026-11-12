@@ -40,7 +40,7 @@ export const verifySignedRequest =
     const url = new URL(c.req.url)
     const body = new Uint8Array(await c.req.raw.clone().arrayBuffer())
     const message =
-      await signingMessage(
+      signingMessage(
         { method: c.req.method
         , path: url.pathname + url.search
         , sessionId: c.get('sessionId') as string

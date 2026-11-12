@@ -130,7 +130,7 @@ export const signedRequestAs =
     const timestamp = String(Date.now())
     const nonce = Buffer.from(nacl.randomBytes(16)).toString('base64url')
     const message =
-      await signingMessage(
+      signingMessage(
         { method
         , path
         , sessionId: user.sessionId

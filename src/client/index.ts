@@ -155,7 +155,7 @@ export const createResourceServerClient =
           const timestamp = String(Date.now())
           const nonce = randomNonce()
           const message =
-            await signingMessage(
+            signingMessage(
               { method: rest.method ?? 'GET'
               , path: url.pathname + url.search
               , sessionId: current.sessionId
