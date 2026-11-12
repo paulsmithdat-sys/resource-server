@@ -5,9 +5,9 @@ import { createTestServer, JSON_API } from './helpers/test-server.ts'
 const json =
   async (response: Response) => await response.json() as any
 
+/** A server where alice is a configured admin, with one anonymous feedback row. */
 const setup =
   async () => {
-    // Purpose: a server where alice is a configured admin, with one anonymous feedback row
     const { app, db } = await createTestServer({ session: true, admins: ['Alice'] })
     const alice = await signIn(app, 'alice')
     const bob = await signIn(app, 'bob')
@@ -20,9 +20,9 @@ const setup =
     return { app, db, alice, bob, feedback: (await json(created)).data.id as string }
   }
 
+/** Give a user a role, as another user. */
 const grant =
   (admin: SignedIn, user: SignedIn, role: string) => {
-    // Purpose: give a user a role, as another user
     return admin.request(
       'POST', '/user_role'
       , resourceDocument('user_role', { role }, { user: toOne('user', user.userId) }))

@@ -6,9 +6,9 @@ import { isObject } from '../server/guard.ts'
 import { readJson } from '../server/io.ts'
 import type { AuthService } from './service/index.ts'
 
+/** Identify the calling client by socket address for rate limiting. */
 const clientAddress =
   (c: Context) => {
-    // Purpose: identify the calling client by socket address for rate limiting
     try {
       return getConnInfo(c).remote.address ?? 'unknown'
     } catch {

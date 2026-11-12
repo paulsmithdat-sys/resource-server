@@ -13,9 +13,9 @@ import { createTestServer, opaqueServerSetup } from './helpers/test-server.ts'
 const json =
   async (response: Response) => await response.json() as any
 
+/** Read audit_log entries as an admin. */
 const entries =
   async (admin: SignedIn, filter = '') => {
-    // Purpose: read audit_log entries as an admin
     const response = await admin.request('GET', `/audit_log?page[size]=100${filter}`)
     return ((await json(response)).data as any[]).map(x => x.attributes)
   }

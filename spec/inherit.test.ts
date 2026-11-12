@@ -12,25 +12,25 @@ import { createTestServer } from './helpers/test-server.ts'
 const json =
   async (response: Response) => await response.json() as any
 
+/** Post a message into a chat, returning the response. */
 const post =
   (user: SignedIn, chat: string, text: string) => {
-    // Purpose: post a message into a chat, returning the response
     return user.request(
       'POST', '/message'
       , resourceDocument('message', { text }, { chat: toOne('chat', chat) }))
   }
 
+/** List the message texts a user can see. */
 const texts =
   async (user: SignedIn, path = '/message?sort=text') => {
-    // Purpose: list the message texts a user can see
     const response = await user.request('GET', path)
     if (response.status !== 200) return response.status
     return ((await json(response)).data as any[]).map(x => x.attributes.text).sort()
   }
 
+/** Alice's chat shared with a group containing bob; carol is outside it. */
 const setup =
   async (grant: Record<string, boolean> = { can_read: true, can_write: true }) => {
-    // Purpose: alice's chat shared with a group containing bob; carol is outside it
     const { app } = await createTestServer({ session: true })
     const alice = await signIn(app, 'alice')
     const bob = await signIn(app, 'bob')

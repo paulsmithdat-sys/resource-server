@@ -8,9 +8,9 @@ import type { Scope } from './scope.ts'
 
 export type Tables = Map<string, TableDef>
 
+/** The resource's rows as a sub-select named like its view, embedding only the relations this request needs. */
 const sourceSql =
   (tables: Tables, resource: ResourceMeta, query?: ListQuery) => {
-    // Purpose: the resource's rows as a sub-select named like its view, embedding only the relations this request needs
     const selection = query?.fields.get(resource.type)
     const sql =
       selectSql(
@@ -24,11 +24,11 @@ const sourceSql =
     return `(${sql}) AS ${quote(resource.view)}`
   }
 
+/** Convert a filter's text value to the column's stored type. */
 const filterValue =
   (column: ColumnDef, field: string, raw: string): unknown => {
-    // Purpose: convert a filter's text value to the column's stored type
+    /** Raise the 400 for a value of the wrong type. */
     const fail = (expected: string): never => {
-      // Purpose: raise the 400 for a value of the wrong type
       throw badRequest(`Filter "${field}" expects ${expected}`, `filter[${field}]`)
     }
     const { type, format } = column.schema
@@ -51,9 +51,9 @@ const escapeLike =
 const comparison: Record<string, string> =
   { eq: '=', ne: '<>', gt: '>', ge: '>=', lt: '<', le: '<=' }
 
+/** Turn one filter[field][operator]=value into parameterized SQL. */
 const filterScope =
   (resource: ResourceMeta, filter: FilterField): Scope => {
-    // Purpose: turn one filter[field][operator]=value into parameterized SQL
     const { field, operator, value } = filter
     const column = resource.definition.columns.find(x => x.columnName === field)!
     const name = `${quote(resource.view)}.${quote(field)}`
@@ -85,9 +85,9 @@ const filterScope =
     return { sql: `${name} LIKE ? ESCAPE '\\'`, params: [pattern] }
   }
 
+/** AND the non-empty scopes into a WHERE clause with its parameters. */
 const whereSql =
   (scopes: Scope[]) => {
-    // Purpose: AND the non-empty scopes into a WHERE clause with its parameters
     const active = scopes.filter(x => x.sql !== '')
     return (
       { sql: active.length ? ` WHERE ${active.map(x => `(${x.sql})`).join(' AND ')}` : ''
@@ -100,8 +100,8 @@ export const listRows =
   , tables: Tables
   , resource: ResourceMeta
   , query: ListQuery
+  /** Run a filtered, sorted, paginated list and return the page with the total count. */
   , scopes: Scope[]) => {
-    // Purpose: run a filtered, sorted, paginated list and return the page with the total count
     const where =
       whereSql([...query.filters.map(x => filterScope(resource, x)), ...scopes])
     const view = quote(resource.view)
@@ -135,8 +135,8 @@ export const readRow =
   , resource: ResourceMeta
   , query: ListQuery
   , id: string
+  /** Read one row by id if it passes the scope. */
   , scope: Scope): Promise<Row | undefined> => {
-    // Purpose: read one row by id if it passes the scope
     const where =
       whereSql([{ sql: `${quote(resource.view)}.\`id\` = ?`, params: [id] }, scope])
     return db.get(

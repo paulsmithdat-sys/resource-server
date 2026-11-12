@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { connect } from '@tursodatabase/database'
 import { applyMigrations } from './migrate.ts'
 
+/** List the user tables in a database. */
 const tableNames =
   async (connection: any) => {
-    // Purpose: list the user tables in a database
     const rows =
       await (await connection.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_\\_%' ESCAPE '\\' ORDER BY name")).all()

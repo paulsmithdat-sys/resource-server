@@ -17,9 +17,9 @@ const usage = `resource-server: JSON Schema in, JSON:API server out
       Apply the migrations and start the server.
 `
 
+/** Run the init or serve command named on the command line. */
 const main =
   async () => {
-    // Purpose: run the init or serve command named on the command line
     const { positionals, values } =
       parseArgs(
         { allowPositionals: true

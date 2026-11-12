@@ -40,8 +40,8 @@ export const jsonApi =
   ( c: AppContext
   , document: unknown
   , status: ContentfulStatusCode = 200
+  /** Respond with a JSON:API document (no body for HEAD). */
   , headers: Record<string, string> = {}): Response => {
-    // Purpose: respond with a JSON:API document (no body for HEAD)
     const responseHeaders = { 'content-type': JSON_API, ...headers }
     return c.req.method === 'HEAD'
       ? c.body(null, status, responseHeaders)
@@ -55,7 +55,6 @@ export const jsonApi =
  */
 export const errorDocument =
   (status: number, title: string, detail: string, parameter?: string) => {
-    // Purpose: serialize one error as a JSON:API errors document
     return errorSerializer.serialize(
       new JapiError(
         { status
@@ -70,10 +69,9 @@ export const errorDocument =
  */
 export const pageLinks =
   (c: AppContext, query: ListQuery, total: number) => {
-    // Purpose: build first/last/prev/next links for a paginated collection
     const pages = Math.max(1, Math.ceil(total / query.pageSize))
+    /** The current URL with another page number. */
     const at = (page: number) => {
-      // Purpose: the current URL with another page number
       const url = new URL(c.req.url)
       url.searchParams.set('page[number]', String(page))
       url.searchParams.set('page[size]', String(query.pageSize))
@@ -93,7 +91,6 @@ export const pageLinks =
  */
 export const withLinks =
   (c: AppContext, document: ApiDocument, extra: Record<string, unknown> = {}) => {
-    // Purpose: add the JSON:API version and self/related links to a document and its resources
     const origin = new URL(c.req.url).origin
     for (const item of [document.data, document.included].flat()) {
       if (!item?.id) continue

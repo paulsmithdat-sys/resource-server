@@ -46,9 +46,11 @@ export type
   , RegisterResult
   } from './auth.ts'
 
+/** Options for one client request: the usual fetch options plus whether to sign it. */
 export type ClientRequestInit =
   RequestInit & { signed?: boolean }
 
+/** Settings for creating a client: server address, fetch implementation, session storage and automatic signing. */
 export type ResourceServerClientOptions =
   { baseUrl?: string
   , fetch?: FetchLike
@@ -71,34 +73,48 @@ const bodyBytes =
       400, 'Bad Request', 'Signed requests need a string or byte body')
   }
 
-export type ResourceServerClient =
-  { register: (
-      input: RegisterInput
-      , options?: { signIn?: boolean }) => Promise<RegisterResult>
-  , login: (input: LoginInput) => Promise<ResourceServerSession>
-  , logout: () => Promise<void>
-  , restore: () => ResourceServerSession | null
-  , status: (id: string) => Promise<KeyStatusDocument>
-  , request: (path: string, init?: ClientRequestInit) => Promise<Response>
-  , get: <T = unknown>(
-      path: string
-      , init?: ClientRequestInit) => Promise<T>
-  , post: <T = unknown>(
-      path: string
-      , body: unknown
-      , init?: ClientRequestInit) => Promise<T>
-  , patch: <T = unknown>(
-      path: string
-      , body: unknown
-      , init?: ClientRequestInit) => Promise<T>
-  , put: <T = unknown>(
-      path: string
-      , body: unknown
-      , init?: ClientRequestInit) => Promise<T>
-  , delete: (path: string, init?: ClientRequestInit) => Promise<void>
-  , readonly session: ResourceServerSession | null
-  , readonly isSignedIn: boolean
-  }
+/** A client for a resource-server: sign-in, session handling and JSON:API requests that are signed when the server requires it. */
+export type ResourceServerClient = {
+  /** Create an account, and sign in unless `signIn` is false. */
+  register: (
+    input: RegisterInput
+    , options?: { signIn?: boolean }) => Promise<RegisterResult>
+  /** Sign in with username and password. */
+  login: (input: LoginInput) => Promise<ResourceServerSession>
+  /** End the session on the server and forget it locally. */
+  logout: () => Promise<void>
+  /** The saved session, or null when there is none. */
+  restore: () => ResourceServerSession | null
+  /** Look up the state of a key by id. */
+  status: (id: string) => Promise<KeyStatusDocument>
+  /** Send a request with the session attached, signing it when asked. */
+  request: (path: string, init?: ClientRequestInit) => Promise<Response>
+  /** GET a path and return the JSON body. */
+  get: <T = unknown>(
+    path: string
+    , init?: ClientRequestInit) => Promise<T>
+  /** POST a JSON body and return the JSON response. */
+  post: <T = unknown>(
+    path: string
+    , body: unknown
+    , init?: ClientRequestInit) => Promise<T>
+  /** PATCH a path with a JSON body and return the JSON response. */
+  patch: <T = unknown>(
+    path: string
+    , body: unknown
+    , init?: ClientRequestInit) => Promise<T>
+  /** PUT a JSON body and return the JSON response. */
+  put: <T = unknown>(
+    path: string
+    , body: unknown
+    , init?: ClientRequestInit) => Promise<T>
+  /** DELETE a path. */
+  delete: (path: string, init?: ClientRequestInit) => Promise<void>
+  /** The current session, or null when signed out. */
+  readonly session: ResourceServerSession | null
+  /** Whether a session is held. */
+  readonly isSignedIn: boolean
+}
 
 const jsonApiHeaders =
   (headers: RequestInit['headers'], withBody: boolean) => {

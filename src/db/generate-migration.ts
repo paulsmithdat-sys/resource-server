@@ -22,9 +22,9 @@ export type GeneratePaths =
   , drizzleConfig: string
   }
 
+/** Path of the drizzle-kit executable installed next to this package. */
 const drizzleKitBin =
   () =>
-    // Purpose: path of the drizzle-kit executable installed next to this package
     join(dirname(Bun.resolveSync('drizzle-kit', import.meta.dir)), 'bin.cjs')
 
 const listMigrationDirs =
@@ -49,9 +49,9 @@ const listMigrationDirs =
     return result.sort()
   }
 
+/** Run `drizzle-kit generate` with the given config, producing one migration. */
 const runDrizzleGenerate =
   (paths: GeneratePaths, name: string, custom = false) => {
-    // Purpose: run `drizzle-kit generate` with the given config, producing one migration
     const args =
       [ drizzleKitBin()
       , 'generate'
@@ -66,9 +66,9 @@ const runDrizzleGenerate =
     execFileSync(process.execPath, args, { cwd: process.cwd(), stdio: 'inherit' })
   }
 
+/** Write the drizzle exports and any new migration for the schemas, idempotently. */
 export const generateMigrations =
   async (paths: GeneratePaths, loaded: LoadedSchema[]) => {
-    // Purpose: write the drizzle exports and any new migration for the schemas, idempotently
     const { migrationsDir, exportPath } = paths
     const statePath = join(migrationsDir, 'custom-ddl-state.json')
     const built = buildSchema(loaded)

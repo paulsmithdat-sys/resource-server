@@ -36,14 +36,14 @@ export const appendCustomDdl =
       + '\n')
   }
 
+/** List tables drizzle-kit rebuilt (which silently drops their triggers). */
 export const recreatedTables =
   (sql: string) =>
-    // Purpose: list tables drizzle-kit rebuilt (which silently drops their triggers)
     [...sql.matchAll(/ALTER TABLE `__new_([^`]+)` RENAME TO/g)].map(x => x[1]!)
 
+/** Make the migration idempotent and restore triggers on rebuilt tables. */
 export const postprocessMigration =
   (sql: string, entries: CustomDdlEntry[], desired: CustomDdlEntry[] = []) => {
-    // Purpose: make the migration idempotent and restore triggers on rebuilt tables
     const rebuilt = new Set(recreatedTables(sql).map(x => `trigger:${x}`))
     const restored =
       desired.filter(x => rebuilt.has(x.key) && !entries.some(e => e.key === x.key))

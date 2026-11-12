@@ -22,9 +22,9 @@ export type SignedIn =
       , body?: unknown) => Promise<Response>
   }
 
+/** Build an Authorization header value for a session id. */
 export const bearer =
   (sessionId: string) => {
-    // Purpose: build an Authorization header value for a session id
     return `Bearer ${sessionId}`
   }
 
@@ -33,8 +33,8 @@ export const requestAs =
   , sessionId: string
   , method: string
   , path: string
+  /** Send a JSON:API request carrying the given session id. */
   , body?: unknown) => {
-    // Purpose: send a JSON:API request carrying the given session id
     const headers: Record<string, string> =
       { authorization: bearer(sessionId), accept: JSON_API }
     const init: RequestInit = { method, headers }
@@ -45,9 +45,9 @@ export const requestAs =
     return Promise.resolve(app.request(path, init))
   }
 
+/** Register a user, log in, and return a session-bound client. */
 export const signIn =
   async (app: Hono, name: string): Promise<SignedIn> => {
-    // Purpose: register a user, log in, and return a session-bound client
     const input =
       { username: name
       , password: PASSWORD
@@ -70,8 +70,8 @@ export const signIn =
 export const resourceDocument =
   ( type: string
   , attributes: Record<string, unknown>
+  /** Wrap attributes and relationships in a JSON:API write document. */
   , relationships?: Record<string, unknown>) => {
-    // Purpose: wrap attributes and relationships in a JSON:API write document
     return (
       { data:
         { type
@@ -81,15 +81,15 @@ export const resourceDocument =
       })
   }
 
+/** Build a to-one JSON:API relationship linkage. */
 export const toOne =
   (type: string, id: string) => {
-    // Purpose: build a to-one JSON:API relationship linkage
     return { data: { type, id } }
   }
 
+/** Build a to-many JSON:API relationship linkage. */
 export const toMany =
   (type: string, ids: string[]) => {
-    // Purpose: build a to-many JSON:API relationship linkage
     return { data: ids.map(id => ({ type, id })) }
   }
 
@@ -99,7 +99,6 @@ export const createAs =
     type: string,
     attributes: Record<string, unknown>,
     relationships?: Record<string, unknown>) => {
-    // Purpose: create a resource as a user and return its id, failing loudly
     const response =
       await user.request(
         'POST', `/${type}`, resourceDocument(type, attributes, relationships))
@@ -111,22 +110,22 @@ export const createAs =
     return body.data.id as string
   }
 
+/** Create an article owned by the given user. */
 export const createArticleAs =
   (user: SignedIn, heading = 'A heading', relationships?: Record<string, unknown>) => {
-    // Purpose: create an article owned by the given user
     return createAs(
       user, 'article', { heading, content: 'Some content' }, relationships)
   }
 
+/** Create a tag owned by the given user. */
 export const createTagAs =
   (user: SignedIn, name = 'a-tag') => {
-    // Purpose: create a tag owned by the given user
     return createAs(user, 'tag', { name, kind: 'topic' })
   }
 
+/** Send a request signed with the user's session key. */
 export const signedRequestAs =
   async (app: Hono, user: SignedIn, method: string, path: string, body?: unknown) => {
-    // Purpose: send a request signed with the user's session key
     const text = body === undefined ? '' : JSON.stringify(body)
     const timestamp = String(Date.now())
     const nonce = Buffer.from(nacl.randomBytes(16)).toString('base64url')

@@ -18,8 +18,10 @@ export type ArticleSeed =
       }
   }
 
-// Each entry is a JSON:API resource object and can be POSTed as `{ "data": entry }`.
-// Tag ids refer to entries in `tagSeed`; seed tags before articles.
+/**
+ * Each entry is a JSON:API resource object and can be POSTed as `{ "data": entry }`.
+ * Tag ids refer to entries in `tagSeed`; seed tags before articles.
+ */
 export const articleSeed: ArticleSeed[] =
   [ { type: 'article'
     , id: '01940000-0000-7000-8000-000000000101'

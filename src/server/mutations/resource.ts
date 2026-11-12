@@ -9,9 +9,9 @@ import { assertRequiredAttributes, attributeAssignments, foreignKeyAssignments, 
 import { readResourceRow } from './row.ts'
 import { assertRelationshipTargets, replaceManyRelationships } from './relationships.ts'
 
+/** Refuse creation of resources the server alone creates, or that need a role the caller lacks. */
 export const assertMayCreate =
   (context: MutationContext, resource: ResourceMeta) => {
-    // Purpose: refuse creation of resources the server alone creates, or that need a role the caller lacks
     if (resource.access.create === 'none')
       throw forbidden(`"${resource.type}" rows are created by the server, not through the API`)
     if (resource.access.create === 'role'

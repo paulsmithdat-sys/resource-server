@@ -28,9 +28,9 @@ properties:
   number: { type: integer }
 `
 
+/** Run the CLI in the throwaway project with a clean environment plus the given variables. */
 const run =
   (args: string[], env: Record<string, string> = {}) => {
-    // Purpose: run the CLI in the throwaway project with a clean environment plus the given variables
     const result =
       Bun.spawnSync(
         [process.execPath, cli, ...args],

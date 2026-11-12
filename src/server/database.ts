@@ -1,17 +1,24 @@
+/** One database row as column name to value. */
 export type Row = Record<string, unknown>
 
+/** What the database reports after running a statement. */
 export type RunResult =
   { changes: number
   , lastInsertRowid: number
   }
 
-export type RowDatabase =
-  { all: (sql: string, params?: unknown[]) => Promise<Row[]>
-  , get: (sql: string, params?: unknown[]) => Promise<Row | undefined>
-  , run: (sql: string, params?: unknown[]) => Promise<RunResult>
-  , transaction?:
-      <T>(fn: (db: RowDatabase) => Promise<T>) => Promise<T>
-  }
+/** The database operations the server needs: queries, statements and transactions. */
+export type RowDatabase = {
+  /** Run a query and return every row. */
+  all: (sql: string, params?: unknown[]) => Promise<Row[]>
+  /** Run a query and return the first row, if any. */
+  get: (sql: string, params?: unknown[]) => Promise<Row | undefined>
+  /** Run a statement and report what it changed. */
+  run: (sql: string, params?: unknown[]) => Promise<RunResult>
+  /** Run the function inside a transaction when the database supports them. */
+  transaction?:
+    <T>(fn: (db: RowDatabase) => Promise<T>) => Promise<T>
+}
 
 export type SqlStatement =
   { all: (...params: unknown[]) => Promise<Row[]>

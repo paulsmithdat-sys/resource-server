@@ -5,9 +5,9 @@ import type { Database } from './open.ts'
 
 export const migrationsFolder = join(import.meta.dir, '../../.drizzle')
 
+/** Apply every migration not yet recorded in the database (the same record drizzle-kit migrate uses). */
 export const applyMigrations =
   async (client: Database, folder = migrationsFolder) => {
-    // Purpose: apply every migration not yet recorded in the database (the same record drizzle-kit migrate uses)
     const result = await migrate(drizzle({ client }), { migrationsFolder: folder })
     if (result)
       throw new Error(`Migrations could not be applied: ${JSON.stringify(result)}`)

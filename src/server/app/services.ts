@@ -47,7 +47,6 @@ export type Services =
  */
 export const createServices =
   (built: BuiltSchema, db: RowDatabase): Services => {
-    // Purpose: gather the per-request helpers every route handler uses
     const registry = buildRegistry(built)
     const tables = new Map(built.orderedTables.map(x => [x.tableName, x]))
 
@@ -62,9 +61,9 @@ export const createServices =
         return resource
       }
 
+    /** Look up the relationship named in the path, or 404. */
     const relationshipFor =
       (c: AppContext, resource: ResourceMeta) => {
-        // Purpose: look up the relationship named in the path, or 404
         const label = pathParam(c, 'rel')
         const meta = resource.relationships[label]
         if (!meta)
@@ -73,9 +72,9 @@ export const createServices =
         return meta
       }
 
+    /** Serialize a row or rows using the request's fields and include options. */
     const serialize =
       async (c: AppContext, resource: ResourceMeta, query: ListQuery, data: unknown) => {
-        // Purpose: serialize a row or rows using the request's fields and include options
         if (data === null) return { data: null }
         const serializer =
           createSerializers(
@@ -91,8 +90,8 @@ export const createServices =
       ( c: AppContext
       , resource: ResourceMeta
       , operation: Operation
+      /** Run a write and, for audited operations, record it in the same transaction. */
       , run: (context: MutationContext) => Promise<string>) => {
-        // Purpose: run a write and, for audited operations, record it in the same transaction
         const audited =
           resource.access.audited.includes(operation) && registry.get('audit_log')
         const work =

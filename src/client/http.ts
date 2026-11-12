@@ -1,19 +1,26 @@
 import { errorFromResponse } from './errors.ts'
 
+/** A function with the same shape as `fetch`. */
 export type FetchLike =
   (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
+/** Settings for the HTTP helpers: server address and fetch implementation. */
 export type HttpOptions =
   { baseUrl?: string
   , fetch?: FetchLike
   }
 
-export type HttpClient =
-  { resolve: (path: string) => URL
-  , request: (path: string, init?: RequestInit) => Promise<Response>
-  , expectOk: (response: Response) => Promise<void>
-  , json: <T>(path: string, init?: RequestInit) => Promise<T>
-  }
+/** Low-level HTTP helpers: resolve a URL, send a request, require a successful response and read JSON. */
+export type HttpClient = {
+  /** The full URL for a path on the server. */
+  resolve: (path: string) => URL
+  /** Send a request to a path on the server. */
+  request: (path: string, init?: RequestInit) => Promise<Response>
+  /** Throw a ResourceServerError unless the response succeeded. */
+  expectOk: (response: Response) => Promise<void>
+  /** Send a request and return the JSON body, throwing on failure. */
+  json: <T>(path: string, init?: RequestInit) => Promise<T>
+}
 
 const normalise =
   (baseUrl: string | undefined) =>

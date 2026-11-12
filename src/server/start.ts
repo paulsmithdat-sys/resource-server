@@ -5,9 +5,9 @@ import type { Database } from '../db/open.ts'
 import { createApp } from './app/index.ts'
 import { createRowDatabase } from './database.ts'
 
+/** Migrate the database, then build the HTTP app from the environment settings. */
 export const createServerApp =
   async (options: { loaded: LoadedSchema[], db: Database, migrationsFolder: string }) => {
-    // Purpose: migrate the database, then build the HTTP app from the environment settings
     const opaqueServerSetup = process.env.OPAQUE_SERVER_SETUP
     if (!opaqueServerSetup)
       throw new Error(

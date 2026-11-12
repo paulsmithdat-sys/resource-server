@@ -61,9 +61,9 @@ const optionalRelationFields: [string, string][] =
   , ['x-exposed', 'boolean']
   ]
 
+/** Reject relation configs whose fields have the wrong shape. */
 export const validateRelation =
   (sourceTitle: string, label: string, relation: RelationConfig) => {
-    // Purpose: reject relation configs whose fields have the wrong shape
     const fail = (message: string): never => {
       throw new Error(`${sourceTitle}: relation "${label}" ${message}`)
     }

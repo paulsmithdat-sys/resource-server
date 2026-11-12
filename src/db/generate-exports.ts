@@ -33,10 +33,10 @@ export const buildExportsSource =
 
     const inputLines =
       sortedLoaded.map(
+        /** Drizzle-kit cannot import YAML, so its parsed documents are inlined. */
         (schema, index) => {
           if (schema.source.endsWith('.json'))
             return `import input${index} from '${toImportPath(exportDir, schema.source)}'`
-          // Purpose: drizzle-kit cannot import YAML, so its parsed documents are inlined
           if (isYamlSource(schema.source))
             return `const input${index} = ${JSON.stringify(schema.schema, null, 2)}`
           return `import { ${schema.exportName} as input${index} } from '${toImportPath(exportDir, schema.source)}'`

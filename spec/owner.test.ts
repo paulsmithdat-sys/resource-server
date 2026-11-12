@@ -11,9 +11,9 @@ const documentOf =
     return body.data
   }
 
+/** Insert a user row directly, because the API never creates users. */
 const createUser =
   async (db: RowDatabase, username: string) => {
-    // Purpose: insert a user row directly, because the API never creates users
     const id = Bun.randomUUIDv7()
     await db.run('INSERT INTO `user` (`id`, `username`) VALUES (?, ?)', [uuidToBuffer(id), username])
     return { id }

@@ -7,9 +7,9 @@ const options: DatabaseOpts =
 /** The opened database connection. */
 export type Database = Awaited<ReturnType<typeof openDatabase>>
 
+/** Open the database file with foreign keys enforced. */
 export const openDatabase =
   async (path = process.env.DB_PATH ?? '.db') => {
-    // Purpose: open the database file with foreign keys enforced
     const db = await connect(path, options)
     await db.exec('PRAGMA foreign_keys = ON')
     return db

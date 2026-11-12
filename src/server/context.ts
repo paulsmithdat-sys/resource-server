@@ -28,6 +28,5 @@ export type { Next }
  */
 export const pathParam =
   (c: AppContext, name: string): string => {
-    // Purpose: read a route parameter as a plain string
     return c.req.param(name) ?? ''
   }

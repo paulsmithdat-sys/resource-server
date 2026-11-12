@@ -18,16 +18,16 @@ export const DEFAULT_LIMITS: Limits =
 
 const ATTEMPT_TTL_MS = 10 * 60_000
 
+/** Login throttling stored in auth_limit, so it survives restarts and is shared by every process. */
 export const createLimits =
   (db: RowDatabase, limits: Limits = DEFAULT_LIMITS) => {
-    // Purpose: login throttling stored in auth_limit, so it survives restarts and is shared by every process
     const live =
       'UPDATE `auth_limit` SET `count` = `count` + 1'
       + ' WHERE `key` = ? AND `expires_at` > ? RETURNING `count`'
 
+    /** Count one more event for a key within its window and return the count. */
     const bump =
       async (key: string, ttlMs: number) => {
-        // Purpose: count one more event for a key within its window and return the count
         const now = Date.now()
         const row = await db.get(live, [key, now])
         if (row) return Number(row.count)
@@ -42,18 +42,18 @@ export const createLimits =
         }
       }
 
+    /** Store a value for a key until it expires, replacing any earlier one. */
     const put =
       async (key: string, value: string | null, ttlMs: number) => {
-        // Purpose: store a value for a key until it expires, replacing any earlier one
         await db.run('DELETE FROM `auth_limit` WHERE `key` = ?', [key])
         await insert(
           db, 'auth_limit', { key, value, expires_at: Date.now() + ttlMs })
           .catch(() => undefined)
       }
 
+    /** Read and remove the value stored for a key. */
     const take =
       async (key: string) => {
-        // Purpose: read and remove the value stored for a key
         const row =
           await db.get('SELECT `value` FROM `auth_limit` WHERE `key` = ?', [key])
         await db.run('DELETE FROM `auth_limit` WHERE `key` = ?', [key])
@@ -61,13 +61,13 @@ export const createLimits =
       }
 
     return (
+      /** Reject a registration start when one client is starting too many. */
       { register: async (client: string) => {
-          // Purpose: reject a registration start when one client is starting too many
           if (await bump(`register:${client}`, limits.windowMs) > limits.startsPerWindow)
             throw tooManyRequests('Too many registration attempts; try again later')
         }
+      /** Reject a login start when the user is locked or the user or client is too busy. */
       , start: async (username: string, client: string) => {
-          // Purpose: reject a login start when the user is locked or the user or client is too busy
           const now = Date.now()
           await db.run('DELETE FROM `auth_limit` WHERE `expires_at` <= ?', [now])
           if (await db.get(
@@ -79,11 +79,11 @@ export const createLimits =
             if (await bump(key, limits.windowMs) > limits.startsPerWindow)
               throw tooManyRequests('Too many login attempts; try again later')
         }
+      /** Remember which username a login state belongs to. */
       , track: (stateId: string, username: string) =>
-          // Purpose: remember which username a login state belongs to
           put(`attempt:${stateId}`, username, ATTEMPT_TTL_MS)
+      /** Count a failed login finish and lock the username at the limit. */
       , fail: async (stateId: string) => {
-          // Purpose: count a failed login finish and lock the username at the limit
           const username = await take(`attempt:${stateId}`)
           if (username === undefined) return
           if (await bump(`fail:${username}`, limits.lockMs) >= limits.maxFailures) {
@@ -92,8 +92,8 @@ export const createLimits =
               'DELETE FROM `auth_limit` WHERE `key` = ?', [`fail:${username}`])
           }
         }
+      /** Clear the failure count after a successful login. */
       , succeed: async (stateId: string) => {
-          // Purpose: clear the failure count after a successful login
           const username = await take(`attempt:${stateId}`)
           if (username !== undefined)
             await db.run(

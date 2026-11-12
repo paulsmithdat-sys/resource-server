@@ -17,8 +17,8 @@ const BASE_URL = 'http://localhost'
 
 const fetchFor =
   (app: Hono): FetchLike =>
+    /** Route the client's fetch calls into an in-process Hono app. */
     async (input, init) => {
-      // Purpose: route the client's fetch calls into an in-process Hono app
       if (typeof input === 'string') return await app.request(input, init)
       if (input instanceof URL) return await app.request(input.toString(), init)
       return await app.request(input)

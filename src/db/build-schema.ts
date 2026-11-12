@@ -7,6 +7,7 @@ import { sortPlansByDependencies, createDrizzleTable } from './build/drizzle-tab
 
 export { createUpdatedTrigger } from './build/columns.ts'
 
+/** Turn a list of JSON Schemas into tables, views and triggers, with the tables ordered so each comes after the ones it references. */
 export const buildSchema =
   (base: LoadedSchema[]): BuiltSchema => {
     const schemas = deriveSchemas(base)

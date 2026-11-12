@@ -39,9 +39,9 @@ const jsonValue =
 
 const LIGHT_COLUMNS = ['id', 'owner', 'visibility']
 
+/** JSON object of a row's exposed columns (light: only what linkage and access checks need). */
 const jsonObject =
   (table: TableDef, alias: string, light = false) => {
-    // Purpose: JSON object of a row's exposed columns (light: only what linkage and access checks need)
     const args = table.columns
       .filter(column =>
         column.exposed && (!light || LIGHT_COLUMNS.includes(column.columnName)))
@@ -59,9 +59,9 @@ const viewValue =
     return column.schema.format === 'uuid' ? uuidString(value) : value
   }
 
+/** Find the join table's foreign keys for the source and target sides. */
 export const joinForeignKeys =
   (join: TableDef, sourceTable: string, targetTable: string) => {
-    // Purpose: find the join table's foreign keys for the source and target sides
     const toSource = join.foreignKeys.filter(x => x.foreignTable === sourceTable)
     const toTarget =
       sourceTable === targetTable
@@ -70,17 +70,17 @@ export const joinForeignKeys =
     return { source: toSource[0], target: toTarget[0] }
   }
 
+/** Fetch a named table or fail with a descriptive message. */
 const need =
   <T>(map: Map<string, T>, name: string, message: string): T => {
-    // Purpose: fetch a named table or fail with a descriptive message
     const found = map.get(name)
     if (!found) throw new Error(message)
     return found
   }
 
+/** Build a correlated sub-select aggregating target rows into a JSON array. */
 const groupedSelect =
   (target: TableDef, joinSql: string, whereSql: string, light: boolean) =>
-    // Purpose: build a correlated sub-select aggregating target rows into a JSON array
     `(SELECT coalesce(json_group_array(${jsonObject(target, 'r', light)}), json('[]'))`
     + ` FROM ${quote(target.tableName)} AS ${quote('r')}`
     + joinSql
@@ -91,9 +91,9 @@ const foreignKeyColumnOf =
   (relation: RelationConfig) =>
     relation.foreignKey ?? `${relation.table}_${relation.column ?? 'id'}`
 
+/** Build the JSON sub-select for a to-one relation. */
 const oneExpression =
   (table: TableDef, relation: RelationConfig, tablesByName: Map<string, TableDef>, light: boolean) => {
-    // Purpose: build the JSON sub-select for a to-one relation
     const target =
       need(tablesByName, relation.table,
         `${table.tableName}: relation targets unknown table "${relation.table}"`)
@@ -105,9 +105,9 @@ const oneExpression =
       + ` LIMIT 1)`
   }
 
+/** Build the JSON sub-select for a to-many relation via join table or inverse FK. */
 const manyExpression =
   (table: TableDef, relation: RelationConfig, tablesByName: Map<string, TableDef>, light: boolean) => {
-    // Purpose: build the JSON sub-select for a to-many relation via join table or inverse FK
     const target =
       need(tablesByName, relation.table,
         `${table.tableName}: relation targets unknown table "${relation.table}"`)
@@ -154,8 +154,8 @@ export type RelationMode = 'full' | 'light' | 'none'
 export const selectSql =
   ( table: TableDef
   , tablesByName: Map<string, TableDef>
+  /** The SELECT behind a resource: its columns plus each relation embedded as JSON per mode. */
   , mode: (label: string) => RelationMode = () => 'full') => {
-    // Purpose: the SELECT behind a resource: its columns plus each relation embedded as JSON per mode
     const relationEntries =
       Object.entries(table.relations)
         .filter(([label, relation]) =>

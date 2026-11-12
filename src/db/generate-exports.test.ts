@@ -49,6 +49,7 @@ describe('buildExportsSource', () => {
       .toThrow('not a valid identifier')
   })
 
+  /** Drizzle-kit consumes TypeScript and cannot import YAML files. */
   test('inlines YAML sources instead of importing them', () => {
     const widget: JSONSchema =
       { title: 'Widget', type: 'object', properties: { name: { type: 'string' } } }
@@ -59,7 +60,6 @@ describe('buildExportsSource', () => {
         } ]
 
     const source = buildExportsSource(buildSchema(yamlSchemas), yamlSchemas, projectExportPath)
-    // Purpose: drizzle-kit consumes TypeScript and cannot import YAML files
     expect(source).toContain('const input0 = {')
     expect(source).toContain('"title": "Widget"')
     expect(source).not.toContain("from '/test/widget.yaml'")

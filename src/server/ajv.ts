@@ -10,9 +10,9 @@ export const ajv = (() => {
   return instance
 })()
 
+/** Name the field behind an AJV validator's first error. */
 export const errorField =
   (validator: Validator, fallback: string): string => {
-    // Purpose: name the field behind an AJV validator's first error
     const error = validator.errors?.[0]
     if (!error) return fallback
 

@@ -2,16 +2,16 @@ import { pascalCase, type JSONSchema, type JSONSchemaProperty, type LoadedSchema
 import { normalizeAccess } from '../access.ts'
 import { DERIVED_SOURCE, DEFAULT_ID, tableNameOf } from './helpers.ts'
 
+/** Build the <table>_share schema granting read/write on rows to users or groups. */
 export const deriveShareTable =
   (source: JSONSchema): LoadedSchema => {
-    // Purpose: build the <table>_share schema granting read/write on rows to users or groups
     const table = tableNameOf(source)
     if (table === 'user' || table === 'user_group')
       throw new Error(`${source.title}: system tables cannot be shareable`)
     const access = normalizeAccess(source)
     const writes = (list: string[]) => list.filter(x => x !== 'read')
+    /** A cascading one-relation from the share row to its note, user or group. */
     const target = (name: string, required = false): RelationConfig =>
-      // Purpose: a cascading one-relation from the share row to its note, user or group
       ({ table: name
       , column: DEFAULT_ID
       , cardinality: 'one'
@@ -56,11 +56,9 @@ export const deriveShareTable =
       })
   }
 
+/** Collapse type unions like [string, 'null'] to their single non-null member so every consumer sees a plain type string; nullability continues to come from `required`. */
 export const normalizePropertyTypes =
   (title: string, property: JSONSchemaProperty, label: string): void => {
-    // Purpose: collapse type unions like [string, 'null'] to their single
-    // non-null member so every consumer sees a plain type string;
-    // nullability continues to come from `required`
     if (Array.isArray(property.type)) {
       const nonNull = property.type.filter(x => x !== 'null')
       if (nonNull.length === 0)

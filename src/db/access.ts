@@ -7,11 +7,11 @@ const KEYS =
   , 'roles', 'inherit', 'audited'
   ]
 
+/** Validate a schema's x-access object and fill in the secure defaults. */
 export const normalizeAccess =
   (schema: JSONSchema): AccessConfig => {
-    // Purpose: validate a schema's x-access object and fill in the secure defaults
+    /** Raise a schema error naming the resource. */
     const fail = (message: string): never => {
-      // Purpose: raise a schema error naming the resource
       throw new Error(`${schema.title}: x-access ${message}`)
     }
     const raw = (schema['x-access'] ?? {}) as Record<string, unknown>
@@ -19,16 +19,16 @@ export const normalizeAccess =
     for (const key of Object.keys(raw))
       if (!KEYS.includes(key)) fail(`has unknown key "${key}"`)
 
+    /** Read a read/create level, defaulting to "session". */
     const level = <T extends string>(key: string, allowed: T[]) => {
-      // Purpose: read a read/create level, defaulting to "session"
       const value = raw[key] ?? 'session'
       if (!allowed.includes(value as T))
         fail(`${key} must be one of ${allowed.join(', ')}`)
       return value as T
     }
 
+    /** Read true/false or a list of operations. */
     const operations = (key: string, value: unknown): Operation[] => {
-      // Purpose: read true/false or a list of operations
       const list =
         value === true ? OPERATIONS
         : value === undefined || value === false ? []

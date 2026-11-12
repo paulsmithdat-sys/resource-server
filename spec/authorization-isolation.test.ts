@@ -14,9 +14,9 @@ import
   } from './helpers/session.ts'
 import { createTestServer } from './helpers/test-server.ts'
 
+/** Build a session-protected server with alice and bob signed in. */
 const twoUsers =
   async () => {
-    // Purpose: build a session-protected server with alice and bob signed in
     const server = await createTestServer({ session: true })
     const alice = await signIn(server.app, 'alice')
     const bob = await signIn(server.app, 'bob')

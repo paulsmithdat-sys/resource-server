@@ -47,6 +47,7 @@ const columnFor =
     return column
   }
 
+/** Turn written attributes into column values (PUT resets omitted ones). */
 export const assertRequiredAttributes =
   (resource: ResourceMeta, provided: Set<string>) => {
     for (const column of resource.definition.columns) {
@@ -71,7 +72,6 @@ export const attributeAssignments =
     resource: ResourceMeta,
     document: WriteDocument,
     mode: Mode) => {
-    // Purpose: turn written attributes into column values (PUT resets omitted ones)
     const { attributes } = document
     const names =
       mode === 'put' ? writableAttributes(resource) : Object.keys(attributes)
@@ -102,9 +102,9 @@ export const attributeAssignments =
     return assignments
   }
 
+/** Turn to-one relationships into foreign key column values. */
 export const foreignKeyAssignments =
   (resource: ResourceMeta, document: WriteDocument, mode: Mode) => {
-    // Purpose: turn to-one relationships into foreign key column values
     const assignments: Values = {}
 
     for (const [label, relation] of exposedRelations(resource, 'one')) {

@@ -11,12 +11,14 @@ import type { ResourceServerSession } from './session.ts'
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
+/** Username, password and optional display name for creating an account. */
 export type RegisterInput =
   { username: string
   , password: string
   , displayName?: string
   }
 
+/** Username and password for signing in. */
 export type LoginInput =
   { username: string
   , password: string
@@ -53,6 +55,7 @@ export type LoginFinishDocument =
   , serverPublicKey: PublicJwk
   }
 
+/** The server's answer about a key: its id, type, expiry, when it was used and its user. */
 export type KeyStatusDocument =
   { id: string
   , type: string
@@ -61,6 +64,7 @@ export type KeyStatusDocument =
   , userId: string | null
   }
 
+/** The new user's id and the session opened for them. */
 export type RegisterResult =
   { userId: string
   , session: ResourceServerSession | null

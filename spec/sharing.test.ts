@@ -9,9 +9,9 @@ import
   } from './helpers/session.ts'
 import { createTestServer } from './helpers/test-server.ts'
 
+/** Create a note with the given visibility. */
 const noteAs =
   (user: SignedIn, visibility = 'shared', title = 'Plans') => {
-    // Purpose: create a note with the given visibility
     return createAs(user, 'note', { title, body: 'secret text', visibility })
   }
 
@@ -19,8 +19,8 @@ const share =
   ( owner: SignedIn
   , note: string
   , target: { user?: string, group?: string }
+  /** Grant a user or group access to a note, returning the response. */
   , grant: { can_read?: boolean, can_write?: boolean } = {}) => {
-    // Purpose: grant a user or group access to a note, returning the response
     return owner.request(
       'POST', '/note_share'
       , resourceDocument(
@@ -32,24 +32,24 @@ const share =
             }))
   }
 
+/** PATCH a note's attributes as a user. */
 const patchNote =
   (user: SignedIn, id: string, attributes: Record<string, unknown>) => {
-    // Purpose: PATCH a note's attributes as a user
     return user.request(
       'PATCH', `/note/${id}`, { data: { type: 'note', id, attributes } })
   }
 
+/** Read a note's title as a user, or undefined when not visible. */
 const titleOf =
   async (user: SignedIn, id: string) => {
-    // Purpose: read a note's title as a user, or undefined when not visible
     const response = await user.request('GET', `/note/${id}`)
     if (response.status !== 200) return undefined
     return ((await response.json()) as any).data.attributes.title
   }
 
+/** A server with three signed-in users. */
 const setup =
   async () => {
-    // Purpose: a server with three signed-in users
     const { app, db } = await createTestServer({ session: true })
     return (
       { app

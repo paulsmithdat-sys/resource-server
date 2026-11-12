@@ -142,9 +142,9 @@ export const parseWriteDocument =
       })
   }
 
+/** The attributes a client may write: not updated_at and nothing marked readOnly. */
 export const writableAttributes =
   (resource: ResourceMeta) => {
-    // Purpose: the attributes a client may write: not updated_at and nothing marked readOnly
     const readOnly =
       new Set(
         resource.definition.columns

@@ -23,12 +23,11 @@ export type Condition = { sql: string, params: unknown[] }
  */
 export const crudHandlers =
   (s: Services) => {
-    // Purpose: build the list, read, create, update and delete handlers
     const { db, tables } = s
 
+    /** Respond with a filtered, sorted, paginated list of a resource. */
     const collection =
       async (c: AppContext, resource: ResourceMeta, extra: Condition[] = []) => {
-        // Purpose: respond with a filtered, sorted, paginated list of a resource
         const query = s.queryOf(c, resource)
         const { rows, total } =
           await listRows(

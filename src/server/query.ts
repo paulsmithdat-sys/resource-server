@@ -29,9 +29,9 @@ const MAX_PAGE_SIZE = 100
 
 export { quote as quoteIdentifier } from '../db/views.ts'
 
+/** List `name[inner]=value` query parameters as [key, inner, value]. */
 const bracketed =
   (params: URLSearchParams, name: string) =>
-    // Purpose: list `name[inner]=value` query parameters as [key, inner, value]
     [...params].flatMap(([key, value]) => {
       const match = new RegExp(`^${name}\\[([^\\]]+)\\]$`).exec(key)
       return match ? [[key, match[1]!, value] as const] : []
@@ -79,9 +79,9 @@ const parseSort =
     return result
   }
 
+/** Read filter[field]=value and filter[field][operator]=value parameters. */
 const parseFilters =
   (params: URLSearchParams, resource: ResourceMeta) => {
-    // Purpose: read filter[field]=value and filter[field][operator]=value parameters
     const allowed = new Set(resource.columns)
     const result: FilterField[] = []
 

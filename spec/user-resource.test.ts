@@ -4,9 +4,9 @@ import { createTestServer } from './helpers/test-server.ts'
 
 const json = async (response: Response) => await response.json() as any
 
+/** A session-enforcing server where alice is a configured admin and bob is an ordinary user. */
 const setup =
   async () => {
-    // Purpose: a session-enforcing server where alice is a configured admin and bob is an ordinary user
     const { app } = await createTestServer({ session: true, admins: ['alice'] })
     return { app, alice: await signIn(app, 'alice'), bob: await signIn(app, 'bob') }
   }

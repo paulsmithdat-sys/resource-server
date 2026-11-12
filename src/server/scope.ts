@@ -5,9 +5,11 @@ import type { Row, RowDatabase } from './database.ts'
 import type { Registry, ResourceMeta } from './registry.ts'
 import { uuidToBuffer } from './uuid.ts'
 
-// userId set: signed in. anonymous: no session on an x-access "public" operation.
-// Neither: the server runs without sessions and applies no scoping.
-// signed: this request carried a valid signature.
+/**
+ * userId set: signed in. anonymous: no session on an x-access "public" operation.
+ * Neither: the server runs without sessions and applies no scoping.
+ * signed: this request carried a valid signature.
+ */
 export type Viewer =
   { userId?: string
   , anonymous?: boolean
@@ -15,7 +17,9 @@ export type Viewer =
   , signed?: boolean
   }
 
-// An empty sql means "no restriction".
+/**
+ * An empty sql means "no restriction".
+ */
 export type Scope = { sql: string, params: unknown[] }
 
 const NONE: Scope = { sql: '', params: [] }
@@ -32,16 +36,16 @@ export const viewerOf =
     , signed: c.get('signed') === true
     })
 
+/** Report whether one of the viewer's roles allows the operation on every row. */
 export const granted =
   (viewer: Viewer, resource: ResourceMeta, operation: Operation) =>
-    // Purpose: report whether one of the viewer's roles allows the operation on every row
     Object.entries(resource.access.roles).some(
       ([role, operations]) =>
         operations.includes(operation) && viewer.roles?.includes(role) === true)
 
+/** SQL that is true when a share grants this user (or one of their groups) the permission. */
 const sharedWith =
   (table: string, idSql: string, userId: string, grant: Grant): Scope => {
-    // Purpose: SQL that is true when a share grants this user (or one of their groups) the permission
     const user = uuidToBuffer(userId)
     return (
       { sql:
@@ -55,9 +59,9 @@ const sharedWith =
       })
   }
 
+/** OR scopes together; an unrestricted scope makes the result unrestricted. */
 const anyOf =
   (scopes: Scope[]): Scope => {
-    // Purpose: OR scopes together; an unrestricted scope makes the result unrestricted
     if (scopes.some(x => x.sql === '')) return NONE
     return (
       { sql: `(${scopes.map(x => x.sql).join(' OR ')})`
@@ -70,8 +74,8 @@ export const readScope =
   , resource: ResourceMeta
   , registry: Registry
   , alias = resource.view
+  /** Restrict reads to rows the viewer owns, may see by visibility, share, role or parent. */
   , depth = 0): Scope => {
-    // Purpose: restrict reads to rows the viewer owns, may see by visibility, share, role or parent
     if (!viewer.userId && !viewer.anonymous) return NONE
     if (resource.access.signed.includes('read') && !viewer.signed) return NEVER
     if (granted(viewer, resource, 'read')) return NONE
@@ -116,9 +120,9 @@ export const readScope =
     return scopes.length === 0 ? NEVER : anyOf(scopes)
   }
 
+/** Restrict updates to rows the user owns, holds a write share on, or has a role for. */
 export const writeScope =
   (viewer: Viewer, resource: ResourceMeta): Scope => {
-    // Purpose: restrict updates to rows the user owns, holds a write share on, or has a role for
     if (!viewer.userId) return viewer.anonymous ? NEVER : NONE
     if (granted(viewer, resource, 'update')) return NONE
 
@@ -130,17 +134,17 @@ export const writeScope =
     return anyOf(scopes)
   }
 
+/** Restrict deletes to rows the user owns or has a role for. */
 export const deleteScope =
   (viewer: Viewer, resource: ResourceMeta): Scope => {
-    // Purpose: restrict deletes to rows the user owns or has a role for
     if (!viewer.userId) return viewer.anonymous ? NEVER : NONE
     if (granted(viewer, resource, 'delete')) return NONE
     return { sql: `${quote(resource.view)}.\`owner\` = ?`, params: [viewer.userId] }
   }
 
+/** Decide from the row alone whether it is readable; undefined means "ask the database". */
 const quickRead =
   (viewer: Viewer, resource: ResourceMeta, row: Row): boolean | undefined => {
-    // Purpose: decide from the row alone whether it is readable; undefined means "ask the database"
     if (!viewer.userId && !viewer.anonymous) return true
     if (resource.access.signed.includes('read') && !viewer.signed) return false
     if (viewer.userId
@@ -161,8 +165,8 @@ export type RowReader = (table: string, rows: Row[]) => Promise<Row[]>
 
 export const createReader =
   (db: RowDatabase, viewer: Viewer, registry: Registry): RowReader =>
+    /** Keep only the embedded rows this viewer may read. */
     async (table, rows) => {
-      // Purpose: keep only the embedded rows this viewer may read
       const resource = registry.get(table)
       if (!resource) return []
 

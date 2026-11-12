@@ -24,7 +24,6 @@ export type GuardOptions =
  */
 export const rolesOf =
   async (options: GuardOptions, userId: string): Promise<string[]> => {
-    // Purpose: list the roles a user holds, from user_role plus the configured admins
     const { db, registry, adminNames } = options
     if (!registry.get('user_role')) return []
     const user = uuidToBuffer(userId)
@@ -48,7 +47,6 @@ export const rolesOf =
  */
 export const createGuard =
   (options: GuardOptions) => {
-    // Purpose: build the middleware that negotiates, authenticates, verifies signatures and loads roles
     const { db, registry, requireAuth } = options
     return async (c: AppContext, next: Next): Promise<Response | void> => {
       const type = pathParam(c, 'type')

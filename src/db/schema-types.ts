@@ -1,20 +1,29 @@
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
 
 /** The chainable column-builder methods this project uses. */
-export type ColumnBuilder =
-  { default(value: unknown): ColumnBuilder
-  , notNull(): ColumnBuilder
-  , unique(): ColumnBuilder
-  , primaryKey(): ColumnBuilder
-  }
+export type ColumnBuilder = {
+  /** Set the column's default value. */
+  default(value: unknown): ColumnBuilder
+  /** Forbid null values. */
+  notNull(): ColumnBuilder
+  /** Require every value to be different. */
+  unique(): ColumnBuilder
+  /** Make this the table's primary key. */
+  primaryKey(): ColumnBuilder
+}
 
+/** Whether a relation links to one row or to many. */
 export type Cardinality = 'one' | 'many'
 
+/** Who can see a row: only its owner, people it is shared with, any signed-in user, or everyone. */
 export type Visibility = 'private' | 'shared' | 'authenticated' | 'public'
 
+/** An action on a row that access control decides. */
 export type Operation = 'read' | 'create' | 'update' | 'delete'
 
-// Normalized x-access. read/create 'public' allow requests without a session.
+/**
+ * Normalized x-access. read/create 'public' allow requests without a session.
+ */
 export type AccessConfig =
   { read: 'session' | 'public'
   // 'role': only holders of a role that grants create may create rows
@@ -31,6 +40,7 @@ export type AccessConfig =
   , audited: Operation[]
   }
 
+/** A relation declared with `x-relations` in a schema. */
 export type RelationConfig =
   { table: string
   , column?: string
@@ -46,6 +56,7 @@ export type RelationConfig =
   , exposed?: boolean
   }
 
+/** A property of a JSON Schema: its type, format, limits and the `x-` extensions that apply to columns. */
 export type JSONSchemaProperty =
   // A union with "null" such as [string, 'null'] is normalized to its
   // non-null member before schema building; nullability comes from `required`.
@@ -67,6 +78,7 @@ export type JSONSchemaProperty =
   , [key: string]: unknown
   }
 
+/** A JSON Schema document with the `x-` extensions this library understands. */
 export type JSONSchema =
   { $schema?: string
   , title: string
@@ -86,6 +98,7 @@ export type JSONSchema =
   , [key: string]: unknown
   }
 
+/** A schema read from a file, with where it came from and the export name used for it. */
 export type LoadedSchema =
   { schema: JSONSchema
   , source: string
@@ -93,6 +106,7 @@ export type LoadedSchema =
   , exportName: string
   }
 
+/** A column built from a schema property. */
 export type ColumnDef =
   { key: string
   , columnName: string
@@ -103,6 +117,7 @@ export type ColumnDef =
   , exposed: boolean
   }
 
+/** A foreign key from columns of one table to columns of another. */
 export type ForeignKeyDef =
   { columns: string[]
   , foreignTable: string
@@ -111,6 +126,7 @@ export type ForeignKeyDef =
   , onUpdate?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
   }
 
+/** A table built from a schema, with its columns, relations and access settings. */
 export type TableDef =
   { key: string
   , tableName: string
@@ -128,12 +144,14 @@ export type TableDef =
   , trigger: string
   }
 
+/** A view built for a table, with its SQL. */
 export type ViewDef =
   { name: string
   , sql: string
   , dropSql: string
   }
 
+/** The result of building schemas: tables, tables in dependency order, triggers and views. */
 export type BuiltSchema =
   { tables: Record<string, TableDef>
   , orderedTables: TableDef[]

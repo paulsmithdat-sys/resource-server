@@ -9,9 +9,9 @@ import
   } from './helpers/session.ts'
 import { createTestServer } from './helpers/test-server.ts'
 
+/** Send a request with no Authorization header. */
 const anonymous =
   (app: any, method: string, path: string, body?: unknown) => {
-    // Purpose: send a request with no Authorization header
     return app.request(
       path
       , { method
@@ -20,16 +20,16 @@ const anonymous =
         })
   }
 
+/** List the resource ids in a JSON:API collection response. */
 const ids =
   async (response: Response) => {
-    // Purpose: list the resource ids in a JSON:API collection response
     const body = await response.json() as any
     return (body.data as any[]).map(x => x.id).sort()
   }
 
+/** Create an article with the given visibility. */
 const publishArticle =
   (user: Awaited<ReturnType<typeof signIn>>, visibility: string, heading = 'Shared') => {
-    // Purpose: create an article with the given visibility
     return createAs(user, 'article', { heading, content: 'Some content', visibility })
   }
 

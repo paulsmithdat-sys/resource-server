@@ -1,11 +1,13 @@
 import nacl from 'tweetnacl'
 
+/** A public Ed25519 key as a JSON Web Key. */
 export type PublicJwk =
   { kty: 'OKP'
   , crv: 'Ed25519'
   , x: string
   }
 
+/** A private Ed25519 key as a JSON Web Key. */
 export type PrivateJwk =
   PublicJwk & { d: string }
 

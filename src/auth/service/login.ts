@@ -12,7 +12,6 @@ import { LOGIN_TTL_MS, SESSION_TTL_MS, keyId, iso, parseStored, clientKey, opaqu
  */
 export const loginHandlers =
   ({ db, serverSetup, throttle, record, purgeExpired, insertKey, consume }: AuthDeps) => {
-    // Purpose: build the OPAQUE login start and finish handlers
     const startLogin =
       async (raw: unknown, client = 'unknown') => {
         await opaque.ready

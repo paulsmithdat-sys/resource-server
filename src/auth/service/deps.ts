@@ -36,11 +36,11 @@ export type KeyRow =
 export const createDeps =
   ( { db, serverSetup, limits = DEFAULT_LIMITS, audit = false }:
       { db: RowDatabase, serverSetup: string, limits?: Limits, audit?: boolean }
+  /** Build the audit, throttle, purge, insert and consume helpers the handlers share. */
   ): AuthDeps => {
-    // Purpose: build the audit, throttle, purge, insert and consume helpers the handlers share
+    /** Write a login event to audit_log when auditing is available. */
     const record =
       async (action: string, user: unknown) => {
-        // Purpose: write a login event to audit_log when auditing is available
         if (audit)
           await insert(
             db, 'audit_log', { actor: user ?? null, action, resource: 'session' })

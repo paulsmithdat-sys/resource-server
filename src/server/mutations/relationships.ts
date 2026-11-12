@@ -11,6 +11,7 @@ import { writeError, foreignKeyColumn } from './assign.ts'
 import { readResourceRow } from './row.ts'
 import { updateResource } from './resource.ts'
 
+/** Reject links to rows the writer does not own (anonymous writers: non-public rows). */
 export const exposedRelations =
   (resource: ResourceMeta, cardinality?: 'one' | 'many') =>
     Object.entries(resource.definition.relations).filter(
@@ -23,7 +24,6 @@ export const assertRelationshipTargets =
     context: MutationContext,
     resource: ResourceMeta,
     document: WriteDocument) => {
-    // Purpose: reject links to rows the writer does not own (anonymous writers: non-public rows)
     if (context.userId === undefined && !context.anonymous) return
 
     for (const [label, relation] of exposedRelations(resource)) {
@@ -54,6 +54,7 @@ const replaceManyRelationship =
   , resource: ResourceMeta
   , relation: RelationConfig
   , sourceId: string
+  /** Rewrite to-many relationships that were written (PUT clears the rest). */
   , targetIds: string[]) => {
     if (relation.through) {
       const join =
@@ -121,7 +122,6 @@ export const replaceManyRelationships =
     id: string,
     document: WriteDocument,
     mode: Mode) => {
-    // Purpose: rewrite to-many relationships that were written (PUT clears the rest)
     for (const [label, relation] of exposedRelations(resource, 'many')) {
       const targets =
         document.relationships.get(label) ?? (mode === 'put' ? [] : undefined)
@@ -138,8 +138,8 @@ export const changeRelationship =
   , id: string
   , label: string
   , value: string | null | string[]
+  /** Replace a relationship, or add to / remove from a to-many one, as its own request. */
   , how: 'replace' | 'add' | 'remove'): Promise<void> => {
-    // Purpose: replace a relationship, or add to / remove from a to-many one, as its own request
     const relationships = new Map([[label, value]])
     if (how === 'replace')
       return updateResource(

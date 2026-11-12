@@ -19,9 +19,9 @@ type Options =
   , key?: Uint8Array
   }
 
+/** Send a request signed with the user's session key (options let tests tamper). */
 const signed =
   async (app: any, user: SignedIn, method: string, path: string, body?: unknown, options: Options = {}) => {
-    // Purpose: send a request signed with the user's session key (options let tests tamper)
     const text = body === undefined ? '' : JSON.stringify(body)
     const timestamp = String(options.timestamp ?? Date.now())
     const nonce = options.nonce ?? Buffer.from(nacl.randomBytes(16)).toString('base64url')

@@ -6,13 +6,12 @@ import { deriveShareTable, normalizePropertyTypes } from './derive/share.ts'
 
 export { DERIVED_SOURCE } from './derive/helpers.ts'
 
+/** Normalize before any derivation so foreign keys and share tables inherit plain type strings too. */
 export const deriveSchemas =
   (base: LoadedSchema[]): LoadedSchema[] => {
     const copies =
       base.map(x => ({ ...x, schema: structuredClone(x.schema) }))
 
-    // Purpose: normalize before any derivation so foreign keys and share
-    // tables inherit plain type strings too
     for (const entry of copies)
       for (const [key, property] of Object.entries(entry.schema.properties ?? {}))
         normalizePropertyTypes(entry.schema.title, property, key)
@@ -75,7 +74,6 @@ export const deriveSchemas =
       }
     }
 
-    // Purpose: list every many-relation that needs a join table, with its table pair
     const joined =
       cloned.flatMap(entry => {
         const sourceTable = tableNameOf(entry.schema)

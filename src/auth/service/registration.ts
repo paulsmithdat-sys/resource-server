@@ -12,7 +12,6 @@ import { REGISTRATION_TTL_MS, keyId, iso, parseStored, clientKey, opaqueStep, ma
  */
 export const registrationHandlers =
   ({ db, serverSetup, throttle, purgeExpired, insertKey, consume }: AuthDeps) => {
-    // Purpose: build the OPAQUE registration start and finish handlers
     const startRegistration =
       async (raw: unknown, client = 'unknown') => {
         await opaque.ready

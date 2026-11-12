@@ -7,7 +7,9 @@ export type TagSeed =
       }
   }
 
-// Each entry is a JSON:API resource object and can be POSTed as `{ "data": entry }`.
+/**
+ * Each entry is a JSON:API resource object and can be POSTed as `{ "data": entry }`.
+ */
 export const tagSeed: TagSeed[] =
   [ { type: 'tag'
     , id: '01940000-0000-7000-8000-000000000001'

@@ -65,8 +65,8 @@ const columnKeyFor =
 export const createDrizzleTable =
   ( plan: TablePlan
   , plansByName: Map<string, TablePlan>
+  /** Create the drizzle table for a plan, with its foreign keys, checks, uniques and indexes. */
   , tablesByName: Map<string, SQLiteTable>) => {
-    // Purpose: create the drizzle table for a plan, with its foreign keys, checks, uniques and indexes
     const columns =
       Object.fromEntries(plan.columns.map(x => [x.key, x.drizzle])) as Record<string, SQLiteColumnBuilder>
 

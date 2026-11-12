@@ -1,5 +1,6 @@
 import type { PublicJwk } from './crypto.ts'
 
+/** A signed-in session: its id, user, expiry and the keys used to sign requests. */
 export type ResourceServerSession =
   { sessionId: string
   , userId: string
@@ -9,14 +10,20 @@ export type ResourceServerSession =
   , secretKey: string
   }
 
-export type SessionStorage =
-  { getItem: (key: string) => string | null
-  , setItem: (key: string, value: string) => void
-  , removeItem: (key: string) => void
-  }
+/** Where the client keeps its session between calls. */
+export type SessionStorage = {
+  /** The value stored under a key, or null. */
+  getItem: (key: string) => string | null
+  /** Store a value under a key. */
+  setItem: (key: string, value: string) => void
+  /** Remove a key. */
+  removeItem: (key: string) => void
+}
 
+/** Storage key under which the session is saved. */
 export const SESSION_STORAGE_KEY = 'resource-server.session'
 
+/** Session storage that keeps the session in memory only, so it is lost when the page or process ends. */
 export const memoryStorage =
   (): SessionStorage => {
     const values = new Map<string, string>()
@@ -31,6 +38,7 @@ export const memoryStorage =
       })
   }
 
+/** Session storage backed by the browser `localStorage`. */
 export const browserStorage =
   (): SessionStorage | null => {
     try {

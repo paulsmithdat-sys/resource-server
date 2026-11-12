@@ -14,17 +14,17 @@ import { createTestServer, JSON_API } from './helpers/test-server.ts'
 const json =
   async (response: Response) => await response.json() as any
 
+/** List article headings matching a query string, sorted. */
 const headings =
   async (user: SignedIn, query: string) => {
-    // Purpose: list article headings matching a query string, sorted
     const response = await user.request('GET', `/article?${query}`)
     if (response.status !== 200) return response.status
     return ((await json(response)).data as any[]).map(x => x.attributes.heading).sort()
   }
 
+/** A server with one user and three articles. */
 const seed =
   async () => {
-    // Purpose: a server with one user and three articles
     const { app } = await createTestServer({ session: true })
     const alice = await signIn(app, 'alice')
     await createAs(alice, 'article', { heading: 'Alpha one', content: 'x', subheading: 'sub' })
@@ -134,9 +134,9 @@ describe('links and document structure', () => {
 })
 
 describe('relationship endpoints', () => {
+  /** An article with one of two tags, plus a second user. */
   const setup =
     async () => {
-      // Purpose: an article with one of two tags, plus a second user
       const { app } = await createTestServer({ session: true })
       const alice = await signIn(app, 'alice')
       const bob = await signIn(app, 'bob')

@@ -49,7 +49,6 @@ const allowed =
  */
 export const createApp =
   ({ built, db, opaqueServerSetup, requireSession, admins = [] }: AppOptions): Hono => {
-    // Purpose: wire the guard, routes and error handling for every exposed resource
     const s = createServices(built, db)
     const app = new Hono<Env>()
 

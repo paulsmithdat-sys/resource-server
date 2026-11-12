@@ -23,7 +23,7 @@ const extensionOf =
 
 const isTestFile = (name: string) => /\.test\.(ts|json|yaml|yml)$/.test(name)
 
-// Purpose: files a schema folder may hold without being schema candidates
+/** Files a schema folder may hold without being schema candidates. */
 const isIgnored =
   (name: string) =>
     name.startsWith('.') || name.startsWith('README') || name.startsWith('LICENSE')
@@ -32,9 +32,9 @@ const isSchemaFile =
   (name: string) =>
     !isTestFile(name) && SCHEMA_EXTENSIONS.includes(extensionOf(name))
 
+/** Every schema file under dir at any depth, failing loudly on anything unrecognized. */
 const listSchemaFiles =
   async (dir: string): Promise<string[]> => {
-    // Purpose: every schema file under dir at any depth, failing loudly on anything unrecognized
     const entries = await readdir(dir, { withFileTypes: true })
     const files: string[] = []
     const unsupported: string[] = []
@@ -58,16 +58,16 @@ const listSchemaFiles =
     return files.sort()
   }
 
+/** Path used to identify a schema file: relative to this package for its own schemas, else to the working directory. */
 const importPathOf =
   (source: string) => {
-    // Purpose: path used to identify a schema file: relative to this package for its own schemas, else to the working directory
     const base = source.startsWith(packageRoot + sep) ? packageRoot : process.cwd()
     return relative(base, source).split(sep).join('/')
   }
 
+/** Expand a schema path (a folder or one file) into schema files. */
 const listSources =
   async (target: string): Promise<string[]> => {
-    // Purpose: expand a schema path (a folder or one file) into schema files
     const info = await stat(target).catch(() => undefined)
     if (!info) throw new Error(`Schema path not found: ${target}`)
     if (info.isDirectory()) return listSchemaFiles(target)
@@ -89,9 +89,9 @@ const loadFromTsFile =
     return result
   }
 
+/** A JSON schema file holds exactly one schema object, or it fails. */
 const loadFromJsonFile =
   async (source: string): Promise<LoadedSchema[]> => {
-    // Purpose: a JSON schema file holds exactly one schema object, or it fails
     const text = await readFile(source, 'utf8')
     let value: unknown
     try {
@@ -107,9 +107,9 @@ const loadFromJsonFile =
     return [{ schema: value, source, importPath, exportName }]
   }
 
+/** Reject YAML values that cannot be stored as JSON schema data. */
 const assertPlainData =
   (value: unknown, context: string): void => {
-    // Purpose: reject YAML values that cannot be stored as JSON schema data
     if (value === null || ['string', 'number', 'boolean'].includes(typeof value))
       return
     if (Array.isArray(value)) {
@@ -126,9 +126,9 @@ const assertPlainData =
     throw new Error(`${context}: YAML value is not plain JSON data`)
   }
 
+/** Every YAML document in the file is one schema, named by its title rather than the file name. */
 const loadFromYamlFile =
   async (source: string): Promise<LoadedSchema[]> => {
-    // Purpose: every YAML document in the file is one schema, named by its title rather than the file name
     const text = await readFile(source, 'utf8')
     const documents = parseAllDocuments(text)
     const errors =
@@ -160,18 +160,18 @@ const loadFromYamlFile =
     })
   }
 
+/** Parse one schema file according to its extension. */
 const loadFromFile =
   async (source: string): Promise<LoadedSchema[]> => {
-    // Purpose: parse one schema file according to its extension
     const extension = extensionOf(source)
     if (extension === '.json') return loadFromJsonFile(source)
     if (extension === '.yaml' || extension === '.yml') return loadFromYamlFile(source)
     return loadFromTsFile(source)
   }
 
+/** Load the built-in system schemas plus every schema in the given folders or files. */
 export const loadSchemas =
   async (options?: { schemaDir?: string | string[] }): Promise<LoadedSchema[]> => {
-    // Purpose: load the built-in system schemas plus every schema in the given folders or files
     const schemaDir = options?.schemaDir ?? process.env.SCHEMA_DIR ?? schemaRoot
     const targets = [schemaDir].flat().map(x => resolve(x))
 

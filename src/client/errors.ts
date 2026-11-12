@@ -16,6 +16,7 @@ export class ResourceServerError extends Error {
   parameter?: string
   document?: unknown
 
+  /** Build the error from a JSON:API error object and the full response document. */
   constructor(
     status: number
     , title: string

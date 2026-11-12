@@ -5,9 +5,9 @@ import { uuidToBuffer } from '../src/server/uuid.ts'
 import { createAs, resourceDocument, signIn } from './helpers/session.ts'
 import { createTestServer, JSON_API } from './helpers/test-server.ts'
 
+/** POST without an Authorization header. */
 const anonymousPost =
   (app: any, path: string, body: unknown) => {
-    // Purpose: POST without an Authorization header
     return app.request(
       path, { method: 'POST', headers: { 'content-type': JSON_API }, body: JSON.stringify(body) })
   }

@@ -22,12 +22,11 @@ type Collection =
  */
 export const relationshipHandlers =
   (s: Services, collection: Collection) => {
-    // Purpose: build the relationship, related-resource and catalog handlers
     const { db, tables, registry } = s
 
+    /** The rows a readable parent links to through a relationship, limited to what the viewer may see. */
     const linkedRows =
       async (c: AppContext, resource: ResourceMeta, meta: RelationshipMeta, linkage: boolean) => {
-        // Purpose: the rows a readable parent links to through a relationship, limited to what the viewer may see
         const id = pathParam(c, 'id')
         const parent =
           await readResourceRow(db, resource, id, s.reading(c, resource))
@@ -44,9 +43,9 @@ export const relationshipHandlers =
           : await createReader(db, viewerOf(c), registry)(meta.table, rows)
       }
 
+    /** The JSON:API relationship document (resource linkage plus links). */
     const relationshipDocument =
       async (c: AppContext, resource: ResourceMeta, meta: RelationshipMeta) => {
-        // Purpose: the JSON:API relationship document (resource linkage plus links)
         const identifiers =
           (await linkedRows(c, resource, meta, true))
             .map(x => ({ type: meta.type, id: String(x.id) }))

@@ -12,9 +12,9 @@ import
 import { bearer, createArticleAs, signIn } from './helpers/session.ts'
 import { createTestServer } from './helpers/test-server.ts'
 
+/** Send a bare request with an optional Authorization header. */
 const withHeader =
   (app: any, method: string, path: string, authorization?: string) => {
-    // Purpose: send a bare request with an optional Authorization header
     return app.request(
       path
       , { method

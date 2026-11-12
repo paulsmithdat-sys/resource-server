@@ -13,15 +13,14 @@ import { JSON_API } from './document.ts'
  */
 export const operationOf =
   (method: string, nested = false): Operation => {
-    // Purpose: map an HTTP method to the x-access operation it performs (relationship writes update the parent)
     if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return 'read'
     if (nested || method === 'PUT' || method === 'PATCH') return 'update'
     return method === 'POST' ? 'create' : 'delete'
   }
 
+/** True when a parsed media type is JSON:API with only allowed parameters. */
 const jsonApiMediaType =
   (value: Accept, allowQuality: boolean) => {
-    // Purpose: true when a parsed media type is JSON:API with only allowed parameters
     return value.type.toLowerCase() === JSON_API
       && value.q > 0
       && Object.keys(value.params).every(name => {
@@ -39,7 +38,6 @@ const jsonApiMediaType =
  */
 export const negotiate =
   (c: AppContext, nested: boolean, known: boolean): void => {
-    // Purpose: apply JSON:API content negotiation (406 for Accept, 415 for Content-Type)
     const ours =
       parseAccept(c.req.header('accept') ?? '')
         .filter(value => value.type.toLowerCase() === JSON_API)

@@ -19,34 +19,34 @@ type ProjectConfig =
 
 const configPath = (dir: string) => join(dir, 'config.json')
 
+/** Fingerprint of everything that decides the tables, so serve can tell the schemas changed since init. */
 export const schemaHash =
   (loaded: LoadedSchema[]) => {
-    // Purpose: fingerprint of everything that decides the tables, so serve can tell the schemas changed since init
     const content = loaded.map(x => [x.importPath, x.exportName, x.schema])
     return createHash('sha256').update(JSON.stringify(content)).digest('hex')
   }
 
+/** Read the settings written by init, or fail with the command to run. */
 const readConfig =
   async (dir: string): Promise<ProjectConfig> => {
-    // Purpose: read the settings written by init, or fail with the command to run
     const text = await readFile(configPath(dir), 'utf8').catch(() => undefined)
     if (text === undefined)
       throw new Error(`No ${configPath(dir)}. Run \`resource-server init <schema…>\` first.`)
     return JSON.parse(text) as ProjectConfig
   }
 
+/** The existing OPAQUE server key, or a new one only when none is set (never replace a key). */
 const serverKey =
   async () => {
-    // Purpose: the existing OPAQUE server key, or a new one only when none is set (never replace a key)
     const existing = process.env.OPAQUE_SERVER_SETUP
     if (existing) return { value: existing, created: false }
     await opaque.ready
     return { value: opaque.server.createSetup(), created: true }
   }
 
+/** Generate the migrations for the schemas into dir, record them, and print the settings to add to .env. */
 export const init =
   async (options: { schemas: string[], dir?: string }) => {
-    // Purpose: generate the migrations for the schemas into dir, record them, and print the settings to add to .env
     const dir = resolve(options.dir ?? defaultDir)
     if (options.schemas.length === 0)
       throw new Error('Give init a schema folder or files, e.g. `resource-server init schemas`.')
@@ -88,9 +88,9 @@ export const init =
     console.log('\nThen run `resource-server serve`. Run init again after any schema change.')
   }
 
+/** Start the server for the schemas recorded by init, refusing to run if they changed since. */
 export const serve =
   async (options: { dir?: string, port?: number }) => {
-    // Purpose: start the server for the schemas recorded by init, refusing to run if they changed since
     const dir = resolve(options.dir ?? defaultDir)
     const config = await readConfig(dir)
     const loaded = await loadSchemas({ schemaDir: config.schemas })

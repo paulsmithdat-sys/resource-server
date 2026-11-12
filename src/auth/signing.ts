@@ -16,9 +16,9 @@ export const NONCE_HEADER = 'x-serber-nonce'
 
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 
+/** Check a request's Ed25519 signature and burn its nonce; returns whether the request was signed. */
 export const verifySignedRequest =
   async (c: AppContext, db: RowDatabase, required: boolean) => {
-    // Purpose: check a request's Ed25519 signature and burn its nonce; returns whether the request was signed
     const signature = c.req.header(SIGNATURE_HEADER)
     const timestamp = c.req.header(TIMESTAMP_HEADER)
     const nonce = c.req.header(NONCE_HEADER)

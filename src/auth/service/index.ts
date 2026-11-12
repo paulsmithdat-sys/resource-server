@@ -23,7 +23,6 @@ export type AuthService =
  */
 export const createAuthService =
   (options: { db: RowDatabase, serverSetup: string, limits?: Limits, audit?: boolean }): AuthService => {
-    // Purpose: assemble the registration, login and key handlers over shared helpers
     const deps = createDeps(options)
     const registration = registrationHandlers(deps)
     const login = loginHandlers(deps)

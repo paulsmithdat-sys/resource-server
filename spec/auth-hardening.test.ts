@@ -18,22 +18,22 @@ import { createTestServer } from './helpers/test-server.ts'
 
 const PASSWORD = credentials().password
 
+/** Run a COUNT(*) query and return the number. */
 const count =
   async (db: any, sql: string, params: unknown[] = []) => {
-    // Purpose: run a COUNT(*) query and return the number
     const row = await db.get(sql, params)
     return Number(row?.n ?? 0)
   }
 
+/** Count user rows with the given username. */
 const userCount =
   (db: any, username: string) => {
-    // Purpose: count user rows with the given username
     return count(db, 'SELECT COUNT(*) AS n FROM `user` WHERE `username` = ?', [username])
   }
 
+/** Count live session rows in the key table. */
 const sessionCount =
   (db: any) => {
-    // Purpose: count live session rows in the key table
     return count(db, "SELECT COUNT(*) AS n FROM `key` WHERE `type` = 'session'")
   }
 

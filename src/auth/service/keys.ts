@@ -19,7 +19,6 @@ export type Finishers =
  */
 export const keyHandlers =
   ({ db, purgeExpired }: AuthDeps, { finishRegistration, finishLogin }: Finishers) => {
-    // Purpose: build the finish, status and delete handlers for key rows
     const finishKey =
       (id: string, raw: unknown) => {
         if (!isObject(raw))

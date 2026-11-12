@@ -33,8 +33,8 @@ const selectedRelationships =
 const parseRelationValue =
   async ( value: unknown
   , relationship: RelationshipMeta
+  /** Decode an embedded relation, keeping only rows the viewer may read. */
   , read: RowReader) => {
-    // Purpose: decode an embedded relation, keeping only rows the viewer may read
     let parsed = value
     if (typeof parsed === 'string') {
       try {
