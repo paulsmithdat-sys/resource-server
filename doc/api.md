@@ -215,7 +215,10 @@ Writes validate:
 
 - the resource type and JSON:API document shape;
 - attribute names against exposed attributes;
-- column types, enums, string lengths, and required fields;
+- every validation keyword in each attribute's JSON Schema, including types,
+  enums, patterns, numeric ranges, string lengths, and nested objects or arrays;
+- required attributes for the request mode (`create`/`PUT` enforce them,
+  `PATCH` may omit them);
 - relationship labels and identifier types;
 - `owner`, when present: it must be a canonical UUID and must reference an
   existing user row.

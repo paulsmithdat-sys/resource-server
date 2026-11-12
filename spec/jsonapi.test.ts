@@ -273,6 +273,7 @@ describe('content negotiation', () => {
 
     expect((await post('application/json')).status).toBe(415)
     expect((await post(`${JSON_API}; charset=utf-8`)).status).toBe(415)
+    expect((await post('application/vnd.api+json-patch+json')).status).toBe(415)
     expect((await post(JSON_API)).status).toBe(201)
     expect((await post(`${JSON_API}; profile="https://example.com/p"`)).status).toBe(201)
   })
@@ -284,7 +285,9 @@ describe('content negotiation', () => {
       app.request('/article', { headers: { authorization: bearer(alice.sessionId), accept } })
 
     expect((await get(`${JSON_API}; version=2`)).status).toBe(406)
+    expect((await get(`${JSON_API};q=0`)).status).toBe(406)
     expect((await get(`${JSON_API}; version=2, ${JSON_API}`)).status).toBe(200)
+    expect((await get(`${JSON_API}; profile="https://example.com/a,b"`)).status).toBe(200)
     expect((await get('*/*')).status).toBe(200)
     expect((await get(JSON_API)).headers.get('content-type')).toBe(JSON_API)
   })

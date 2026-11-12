@@ -49,28 +49,24 @@ export type WriteDocument =
 type AttributeValidator = (data: unknown) => boolean
 
 const attributeValidators =
-  new Map<string, AttributeValidator>()
+  new WeakMap<ResourceMeta, AttributeValidator>()
 
 const buildAttributeValidator =
   (resource: ResourceMeta): AttributeValidator => {
-    const cached = attributeValidators.get(resource.type)
+    const cached = attributeValidators.get(resource)
     if (cached) return cached
 
-    const columns = resource.definition.columns.filter(
-      x => x.exposed
-        && x.columnName !== 'updated_at'
-        && x.columnName !== 'id')
-
-    const keys = ['type', 'format', 'enum', 'minLength', 'maxLength'] as const
+    // Compile the column schemas themselves so every keyword the author wrote
+    // (pattern, minimum, nested properties, items, ...) is enforced. Required
+    // attributes stay mode-aware: create/put check them in the write path,
+    // while patch may omit them.
+    const writable =
+      new Set(resource.attributes.filter(x => x !== 'updated_at'))
     const properties =
       Object.fromEntries(
-        columns.map(column => (
-          [ column.columnName
-          , Object.fromEntries(
-              keys
-                .filter(key => column.schema[key] !== undefined)
-                .map(key => [key, column.schema[key]]))
-          ])))
+        resource.definition.columns
+          .filter(column => writable.has(column.columnName))
+          .map(column => [column.columnName, column.schema]))
 
     const validator =
       ajv.compile(
@@ -79,7 +75,7 @@ const buildAttributeValidator =
         , properties
         })
 
-    attributeValidators.set(resource.type, validator)
+    attributeValidators.set(resource, validator)
     return validator
   }
 

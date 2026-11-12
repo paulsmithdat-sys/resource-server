@@ -254,4 +254,65 @@ describe('JSON:API application', () => {
     const invalidDocument = await invalid.json() as any
     expect(invalidDocument.errors[0].source.parameter).toBe('data.attributes.rank')
   })
+
+  test('enforces the full JSON Schema of every attribute', async () => {
+    const strictBuilt = buildSchema(
+      [ loadedSchema(
+          { title: 'Strict'
+          , type: 'object'
+          , properties:
+            { name: { type: 'string', pattern: '^[a-z]+$' }
+            , score: { type: 'integer', minimum: 1, maximum: 10 }
+            , meta:
+              { type: 'object'
+              , properties: { size: { type: 'number', minimum: 0 } }
+              , required: ['size']
+              }
+            , tags:
+              { type: 'array'
+              , items: { type: 'string', minLength: 2 }
+              , uniqueItems: true
+              }
+            }
+          })])
+    const row: Row =
+      { id: '01900000-0000-7000-8000-000000000004'
+      , updated_at: 1
+      , name: 'abc'
+      , score: 5
+      , meta: { size: 1 }
+      , tags: ['aa', 'bb']
+      }
+    const db: RowDatabase =
+      { all: async () => [row]
+      , get: async (sql) => {
+          if (sql.startsWith('INSERT')) return { id: row.id }
+          return row
+        }
+      , run: async () => ({ changes: 1, lastInsertRowid: 0 })
+      }
+    const app = createApp({ built: strictBuilt, db })
+    const post =
+      (attributes: Record<string, unknown>) =>
+        app.request('/strict',
+          { method: 'POST'
+          , headers: { 'content-type': 'application/vnd.api+json' }
+          , body: JSON.stringify({ data: { type: 'strict', attributes } })
+          })
+
+    const valid =
+      { name: 'abc', score: 5, meta: { size: 1 }, tags: ['aa', 'bb'] }
+    expect((await post(valid)).status).toBe(201)
+
+    for (const attributes of
+      [ { ...valid, name: 'ABC' }
+      , { ...valid, score: 0 }
+      , { ...valid, score: 11 }
+      , { ...valid, meta: {} }
+      , { ...valid, meta: { size: -1 } }
+      , { ...valid, tags: ['a'] }
+      , { ...valid, tags: ['aa', 'aa'] }
+      ])
+      expect((await post(attributes)).status).toBe(400)
+  })
 })
