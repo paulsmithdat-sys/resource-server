@@ -7,7 +7,7 @@ import { validateRelation, foreignKeyColumnOf, buildUniqueConstraints } from './
 
 const SYSTEM_SCHEMA_DIR = 'src/schema/system/'
 
-export type TablePlan = Omit<TableDef, 'drizzleSchema'>
+export type TablePlan = Omit<TableDef, 'createSql' | 'indexSql'>
 
 export const buildTablePlan =
   (loaded: LoadedSchema): TablePlan => {
@@ -65,7 +65,7 @@ export const buildTablePlan =
           { key
           , columnName
           , schema: property
-          , drizzle: buildColumn(key, property, isRequired)
+          , sql: buildColumn(key, property, isRequired)
           , required: isRequired
           , injected: injected.has(columnName)
           , exposed: property['x-exposed'] !== false

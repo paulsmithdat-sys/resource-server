@@ -112,22 +112,37 @@ Collections support:
   as SQL parameters. JSON:API reserves `filter` but does not define operators, so
   this operator syntax is Serber's own convention;
 - `fields[type]` — comma-separated attributes and relationship labels;
-- `include` — comma-separated relationship labels for a compound document.
+- `include` — comma-separated relationship paths for a compound document. A path
+  such as `article.tag` includes each article and then each article's tags.
 
 Single-resource requests accept `fields[type]` and `include`. Pagination and
 sorting parameters are accepted but do not affect a single-resource response.
 
-Sorting and filtering only allow exposed base view columns. Relationship labels
+A filter field may follow relationships: `filter[tag.name]=news` keeps articles
+with at least one tag named `news`, and `filter[article.tag.name][starts]=n`
+follows two steps (at most three). Every operator works the same way on a
+related field. Only related rows the viewer may read are considered, so a filter
+can never reveal whether an unreadable row exists.
+
+Sorting only allows exposed base view columns; filtering allows them and
+related fields as above. Relationship labels
 are not SQL columns and are rejected. Unknown fields or resource types in
 `fields[...]`, unknown relationship labels, and out-of-range pagination values
 return `400` with a JSON:API error whose `source.parameter` names the bad
 parameter.
 
-Relationship loading is limited to direct relationships:
+Include paths follow the JSON:API rules:
 
-- `include=tag` works;
-- nested paths such as `include=tag.articles` are not implemented;
-- included resources are serialized without their own relationships.
+- `include=tag` includes direct relationships, and `include=article.tag` follows
+  a path of up to three relationships;
+- every resource on a path is included too, so `article.tag` includes the
+  articles as well as their tags;
+- a resource appears once in `included`, and never when it is already primary
+  data;
+- an included resource has relationship linkage only for the labels that
+  continue a path through it;
+- each step applies the viewer's read access, so an unreadable row is absent at
+  any depth, and its id is not leaked in linkage.
 
 Hidden relations cannot be requested, and relations to hidden tables are hidden
 automatically.

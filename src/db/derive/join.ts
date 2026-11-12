@@ -58,6 +58,5 @@ export const deriveJoinTable =
       { schema
       , source: DERIVED_SOURCE
       , importPath: DERIVED_SOURCE
-      , exportName: `${pascalCase(schema.title)}Schema`
       })
   }

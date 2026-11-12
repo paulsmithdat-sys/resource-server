@@ -31,7 +31,8 @@ export const crudHandlers =
         const query = s.queryOf(c, resource)
         const { rows, total } =
           await listRows(
-            db, tables, resource, query, [s.reading(c, resource), ...extra])
+            db, tables, resource, query, [s.reading(c, resource), ...extra]
+            , (target, alias) => s.readingAs(c, target, alias))
 
         return jsonApi(
           c

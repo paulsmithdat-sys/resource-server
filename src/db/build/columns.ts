@@ -1,12 +1,9 @@
-import { sql } from 'drizzle-orm'
-import { blob, integer, real, text, unique } from 'drizzle-orm/sqlite-core'
-import { snakeCase, type ColumnBuilder, type JSONSchemaProperty } from '../schema-types.ts'
+import { snakeCase, type ColumnSql, type JSONSchemaProperty } from '../schema-types.ts'
 
-const uuidDefault =
-  () => sql`(uuid7())`
+const UUID_DEFAULT = '(uuid7())'
 
-const timestampDefault =
-  () => sql`(cast((julianday('now') - 2440587.5)*86400000 as integer))`
+const TIMESTAMP_DEFAULT =
+  "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
 
 export const createUpdatedTrigger =
   (tableName: string) => `
@@ -22,75 +19,52 @@ BEGIN
     WHERE id = OLD.id;
 END;`.trim()
 
-const isStringEnum =
-  (value: readonly unknown[] | undefined): value is [string, ...string[]] =>
-    Array.isArray(value)
-    && value.length > 0
-    && value.every(x => typeof x === 'string')
-
 export const validateExposure =
   (title: string, value: unknown, label: string) => {
     if (value !== undefined && typeof value !== 'boolean')
       throw new Error(`${title}: ${label} x-exposed must be a boolean`)
   }
 
-const applyDefault =
-  (builder: ColumnBuilder, value: unknown, property: JSONSchemaProperty): ColumnBuilder => {
-    if (value === undefined) return builder
+const quoted = (value: string) => `'${value.replaceAll("'", "''")}'`
+
+/** A schema default as a SQL literal, or undefined when it cannot be stored. */
+const defaultSql =
+  (value: unknown, property: JSONSchemaProperty) => {
     if (property.type === 'object' || property.type === 'array')
-      return builder.default(sql`${JSON.stringify(value)}`)
+      return quoted(JSON.stringify(value))
     if (property.format === 'date-time') {
       const millis = typeof value === 'string' ? Date.parse(value) : NaN
-      return Number.isFinite(millis) ? builder.default(sql`${millis}`) : builder
+      return Number.isFinite(millis) ? String(millis) : undefined
     }
-    if (property.type === 'boolean')
-      return builder.default(value ? 1 : 0)
-    return builder.default(value)
+    if (property.type === 'boolean') return value ? '1' : '0'
+    return typeof value === 'string' ? quoted(value) : String(value)
   }
 
+const typeOf =
+  (property: JSONSchemaProperty): ColumnSql['type'] => {
+    if (property.format === 'uuid' || property.format === 'byte') return 'blob'
+    if (property.format === 'date-time') return 'integer'
+    if (property.type === 'integer' || property.type === 'boolean') return 'integer'
+    if (property.type === 'number') return 'real'
+    return 'text'
+  }
+
+/** The SQLite declaration of a column built from a schema property. */
 export const buildColumn =
-  ( key: string
-  , property: JSONSchemaProperty
-  , required: boolean): ColumnBuilder => {
+  (key: string, property: JSONSchemaProperty, required: boolean): ColumnSql => {
     const columnName = snakeCase(key)
-    let builder: ColumnBuilder
+    const isId = columnName === 'id'
+    const isUpdatedAt = columnName === 'updated_at'
+    const fallback =
+      isId ? UUID_DEFAULT : isUpdatedAt ? TIMESTAMP_DEFAULT : undefined
+    const declared =
+      property.default === undefined ? undefined : defaultSql(property.default, property)
 
-    if (property.format === 'uuid')
-      builder = blob(columnName)
-    else if (property.format === 'date-time')
-      builder = integer(columnName, { mode: 'timestamp' })
-    else if (property.format === 'byte')
-      builder = blob(columnName)
-    else if (property.type === 'string')
-      builder = isStringEnum(property.enum)
-        ? text(columnName, { enum: property.enum })
-        : text(columnName)
-    else if (property.type === 'integer')
-      builder = integer(columnName)
-    else if (property.type === 'number')
-      builder = real(columnName)
-    else if (property.type === 'boolean')
-      builder = integer(columnName, { mode: 'boolean' })
-    else if (property.type === 'object' || property.type === 'array')
-      builder = text(columnName, { mode: 'json' })
-    else
-      builder = text(columnName)
-
-    if (property.default !== undefined)
-      builder = applyDefault(builder, property.default, property)
-    else if (columnName === 'id')
-      builder = builder.default(uuidDefault())
-    else if (columnName === 'updated_at')
-      builder = builder.default(timestampDefault())
-
-    if (required || columnName === 'id' || columnName === 'updated_at')
-      builder = builder.notNull()
-
-    if (property['x-unique'])
-      builder = builder.unique()
-
-    if (property['x-primary'] || columnName === 'id')
-      builder = builder.primaryKey()
-
-    return builder
+    return (
+      { type: typeOf(property)
+      , notNull: required || isId || isUpdatedAt
+      , unique: property['x-unique'] === true
+      , primaryKey: property['x-primary'] === true || isId
+      , ...(declared ?? fallback ? { default: declared ?? fallback } : {})
+      })
   }

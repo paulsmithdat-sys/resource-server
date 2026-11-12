@@ -1,7 +1,7 @@
 import { SIGNATURE_HEADER } from '../../auth/signing.ts'
 import type { BuiltSchema, Operation, TableDef } from '../../db/schema-types.ts'
 import { pathParam, type AppContext } from '../context.ts'
-import type { RowDatabase } from '../database.ts'
+import type { Row, RowDatabase } from '../database.ts'
 import { notFound } from '../errors.ts'
 import type { MutationContext } from '../mutations/index.ts'
 import { parseListQuery, type ListQuery } from '../query.ts'
@@ -12,7 +12,8 @@ import
   , type ResourceMeta
   } from '../registry.ts'
 import { createReader, readScope, viewerOf, type Scope } from '../scope.ts'
-import { createSerializers } from '../serialize.ts'
+import { readRowsByIds } from '../read.ts'
+import { createSerializer, type RowExpander } from '../serialize.ts'
 import { insert } from '../sql.ts'
 import { uuidToBuffer } from '../uuid.ts'
 import type { ApiDocument } from './document.ts'
@@ -29,6 +30,8 @@ export type Services =
   , missing: (resource: ResourceMeta, id: string) => Error
   , queryOf: (c: AppContext, resource: ResourceMeta) => ListQuery
   , reading: (c: AppContext, resource: ResourceMeta) => Scope
+  /** The read scope of a resource, as a condition on another alias of its view. */
+  , readingAs: (c: AppContext, resource: ResourceMeta, alias: string) => Scope
   , serialize:
       (c: AppContext, resource: ResourceMeta, query: ListQuery, data: unknown)
         => Promise<ApiDocument>
@@ -76,14 +79,14 @@ export const createServices =
     const serialize =
       async (c: AppContext, resource: ResourceMeta, query: ListQuery, data: unknown) => {
         if (data === null) return { data: null }
-        const serializer =
-          createSerializers(
-            registry, query.fields, query.include, resource.type
-            , createReader(db, viewerOf(c), registry))
-            .get(resource.type)!
-        return await serializer.serialize(
-          data as Record<string, unknown> | Record<string, unknown>[]
-          , { include: query.include }) as ApiDocument
+        const read = createReader(db, viewerOf(c), registry)
+        const expand: RowExpander =
+          (target, ids, labels) =>
+            readRowsByIds(
+              db, tables, target, { fields: query.fields, include: labels }, ids
+              , readScope(viewerOf(c), target, registry))
+        return await createSerializer(
+          registry, query.fields, query.includeTree, resource.type, read, expand)(data as Row | Row[])
       }
 
     const mutate =
@@ -130,6 +133,8 @@ export const createServices =
             parseListQuery(new URL(c.req.url).searchParams, resource, registry)
       , reading:
           (c, resource) => readScope(viewerOf(c), resource, registry)
+      , readingAs:
+          (c, resource, alias) => readScope(viewerOf(c), resource, registry, alias)
       , serialize
       , mutate
       })

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { buildSchema } from '../../../src/db/build-schema.ts'
 import { buildOne, loadedSchema, userSchema } from './build-schema.helpers.ts'
 import { type JSONSchema } from '../../../src/db/schema-types.ts'
@@ -68,10 +67,8 @@ describe('buildSchema relations', () => {
         }
       ])
 
-    const config = getTableConfig(widget.drizzleSchema)
-    expect(config.foreignKeys).toHaveLength(2)
-    expect(config.indexes.map(x => (x.config.columns[0] as any).name))
-      .toEqual(['user_id', 'owner'])
+    expect(widget.foreignKeys).toHaveLength(2)
+    expect(widget.indexes).toEqual(['user_id', 'owner'])
   })
 
   test('makes required one relation columns not null', () => {
@@ -92,9 +89,8 @@ describe('buildSchema relations', () => {
           })
       ])
 
-    const config = getTableConfig(built.tables.Widget!.drizzleSchema)
-    const userId = config.columns.find(x => x.name === 'user_id')!
-    expect(userId.notNull).toBe(true)
+    const userId = built.tables.Widget!.columns.find(x => x.columnName === 'user_id')!
+    expect(userId.sql.notNull).toBe(true)
   })
 
   test('rejects invalid relations', () => {
@@ -176,18 +172,15 @@ describe('buildSchema derived relations', () => {
     expect(join.columns.map(x => x.columnName))
       .toEqual(['id', 'updated_at', 'owner', 'visibility', 'article_id', 'tag_id'])
 
-    const config = getTableConfig(join.drizzleSchema)
-    const articleId = config.columns.find(x => x.name === 'article_id')!
-    const tagId = config.columns.find(x => x.name === 'tag_id')!
-    expect(articleId.notNull).toBe(true)
-    expect(tagId.notNull).toBe(true)
-    expect(articleId.getSQLType()).toBe('blob')
-    expect(tagId.getSQLType()).toBe('blob')
-    expect(config.foreignKeys).toHaveLength(2)
-    expect(config.uniqueConstraints).toHaveLength(1)
-    expect(
-      config.uniqueConstraints[0]!.columns.map(x => x.name).sort())
-      .toEqual(['article_id', 'tag_id'])
+    const articleId = join.columns.find(x => x.columnName === 'article_id')!
+    const tagId = join.columns.find(x => x.columnName === 'tag_id')!
+    expect(articleId.sql.notNull).toBe(true)
+    expect(tagId.sql.notNull).toBe(true)
+    expect(articleId.sql.type).toBe('blob')
+    expect(tagId.sql.type).toBe('blob')
+    expect(join.foreignKeys).toHaveLength(2)
+    expect(join.uniqueConstraints).toHaveLength(1)
+    expect([...join.uniqueConstraints[0]!].sort()).toEqual(['article_id', 'tag_id'])
   })
 
   test('deduplicates the two sides of a many-to-many relation', () => {
@@ -315,9 +308,7 @@ describe('buildSchema derived relations', () => {
           })
       ])
 
-    const config = getTableConfig(built.tables.Pair!.drizzleSchema)
-    expect(config.uniqueConstraints.map(x => x.columns.map(c => c.name)))
-      .toEqual([['left', 'right']])
+    expect(built.tables.Pair!.uniqueConstraints).toEqual([['left', 'right']])
 
     expect(() => buildOne(
       { title: 'Pair'

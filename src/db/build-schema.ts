@@ -1,9 +1,8 @@
-import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { buildViews } from './views.ts'
 import { deriveSchemas } from './derive-schemas.ts'
 import { type BuiltSchema, type JSONSchema, type LoadedSchema, type TableDef } from './schema-types.ts'
 import { buildTablePlan } from './build/plan.ts'
-import { sortPlansByDependencies, createDrizzleTable } from './build/drizzle-table.ts'
+import { createIndexSql, createTableSql, sortPlansByDependencies } from './build/ddl.ts'
 
 export { createUpdatedTrigger } from './build/columns.ts'
 
@@ -74,14 +73,14 @@ export const buildSchema =
       tableNames.add(plan.tableName)
     }
 
-    const tablesByName = new Map<string, SQLiteTable>()
     const builtByName = new Map<string, TableDef>()
 
     for (const plan of sortPlansByDependencies(plans)) {
-      const drizzleSchema =
-        createDrizzleTable(plan, plansByName, tablesByName)
-      const table: TableDef = { ...plan, drizzleSchema }
-      tablesByName.set(plan.tableName, drizzleSchema)
+      const table: TableDef =
+        { ...plan
+        , createSql: createTableSql(plan)
+        , indexSql: createIndexSql(plan)
+        }
       builtByName.set(plan.tableName, table)
       tables[plan.key] = table
     }

@@ -210,3 +210,47 @@ export const buildViews =
 
     return views
   }
+
+/**
+ * The JOINs that lead from base-table alias `s` of `table` to base-table alias
+ * `t` of the relation's target, through the join table (alias `j`) when there is one.
+ */
+export const relationJoin =
+  ( table: TableDef
+  , relation: RelationConfig
+  , tablesByName: Map<string, TableDef>
+  , s: string
+  , t: string
+  , j: string) => {
+    const target =
+      need(tablesByName, relation.table,
+        `${table.tableName}: relation targets unknown table "${relation.table}"`)
+    const into = `JOIN ${quote(target.tableName)} AS ${quote(t)} ON `
+
+    if (relation.cardinality === 'one')
+      return into
+        + `${reference(t, relation.column ?? 'id')} = ${reference(s, foreignKeyColumnOf(relation))}`
+
+    if (relation.through) {
+      const join =
+        need(tablesByName, relation.through,
+          `${table.tableName}: join table "${relation.through}" does not exist`)
+      const keys = joinForeignKeys(join, table.tableName, target.tableName)
+      if (!keys.source || !keys.target)
+        throw new Error(
+          `${table.tableName}: join table "${relation.through}" needs foreign keys to both tables`)
+      return `JOIN ${quote(join.tableName)} AS ${quote(j)} ON `
+        + `${reference(j, keys.source.columns[0]!)} = ${reference(s, keys.source.foreignColumns[0]!)} `
+        + into
+        + `${reference(t, keys.target.foreignColumns[0]!)} = ${reference(j, keys.target.columns[0]!)}`
+    }
+
+    const inverse =
+      Object.values(target.relations)
+        .find(x => x.cardinality === 'one' && x.table === table.tableName)
+    if (!inverse)
+      throw new Error(
+        `${table.tableName}: many relation to "${relation.table}" needs a join table or an inverse one relation`)
+    return into
+      + `${reference(t, foreignKeyColumnOf(inverse))} = ${reference(s, inverse.column ?? 'id')}`
+  }

@@ -4,7 +4,7 @@
 
 Serber is a schema-first resource server. You describe your domain in JSON Schema, and Serber generates the database schema, relations, views, migrations, and JSON:API endpoints. Applications write schema files instead of CRUD handlers, migrations, authentication, and authorization code.
 
-It is built on **Turso / SQLite**, **Drizzle**, **Hono**, **JSON:API**, **OPAQUE**, and **AJV**.
+It is built on **Turso / SQLite**, **Hono**, **JSON:API**, **OPAQUE**, and **AJV**.
 
 ## What you get
 
@@ -31,9 +31,8 @@ bun resource-server serve
 
 `init` writes into `.resource-server/` by default:
 
-- `migrations/` — generated SQL. **Commit it.**
+- `migrations/` — generated SQL and `schema-state.json`, which records what exists so the next `init` writes only the difference. **Commit it.**
 - `config.json` — the schema paths and their fingerprint. **Commit it.**
-- `exports.ts`, `drizzle.config.ts` — generated working files, git-ignored.
 
 It also prints the environment settings. `OPAQUE_SERVER_SETUP` is created only when none is set, and is never replaced, because replacing it would lock out every registered user.
 
@@ -51,13 +50,13 @@ It also prints the environment settings. `OPAQUE_SERVER_SETUP` is created only w
 
 A schema is a JSON Schema object. The `title` becomes the snake_case table name.
 
-Schemas are written as `.ts`, `.json`, `.yaml`, or `.yml` files:
+Schemas are written as `.json`, `.yaml`, or `.yml` files:
 
-- `.ts` modules export schema objects (named exports; non-schema exports are ignored).
 - `.json` files hold exactly one schema object.
 - `.yaml`/`.yml` files may hold several schemas, one per `---` document; each document is named by its `title`, not by the file name.
-- Schema folders are scanned recursively, and file names never affect table names.
-- `*.test.*` files, dotfiles, `README*`, and `LICENSE*` are skipped.
+- A schema folder is read one level deep (subfolders are not loaded), and file names never affect table names.
+- `$ref` to another file (`$ref: email.yaml`) or to `$defs` (`$ref: "#/$defs/count"`) is resolved when the schema is loaded. Circular references fail.
+- `*.test.json`/`*.test.yaml` files, dotfiles, `README*`, and `LICENSE*` are skipped.
 - Anything else in a schema folder fails loudly, as does a JSON or YAML file whose top level is not a schema object. Missing schema files were the reason `init` once reported fewer tables than you wrote.
 
 A nullable property is written with `required` — not with a union — because a union-typed column still needs one SQLite type. `type: ["integer", "null"]` collapses to `integer`, `["null", "string"]` to `string`, in properties, nested `properties`, and `items` alike. Unions with two or more non-null types, or with only `"null"`, fail loudly.
@@ -250,8 +249,9 @@ Collections support:
 - `page[number]` and `page[size]` (default `20`, maximum `100`);
 - `sort=field,-other`;
 - `filter[field]=value`, plus `filter[field][operator]=value` with `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `in`, `nin`, `contains`, `starts`, `ends`, and `null`;
+- `filter[rel.field]=value` on related resources (up to three steps), matching only related rows the viewer may read;
 - `fields[type]=a,b` for sparse fieldsets;
-- `include=rel` for direct relationships.
+- `include=rel` or a nested path such as `include=article.tag` (up to three steps).
 
 Errors use the JSON:API error format:
 
@@ -320,4 +320,4 @@ Tests run against in-memory databases built from every migration, so they do not
 
 Early development. Complete: schema generation, relations, views, migrations, JSON:API, OPAQUE authentication, and owner-based authorization with sharing, roles, inheritance, audit, and signing.
 
-Remaining: key rotation and revocation, moderation of inherited rows by the parent's owner, nested `include` paths, filters on related resources, and operational hardening. See [Roadmap](doc/roadmap.md).
+Remaining: key rotation and revocation, moderation of inherited rows by the parent's owner, and operational hardening. See [Roadmap](doc/roadmap.md).

@@ -21,7 +21,7 @@
     "bun": ">=1.4"
   },
   "scripts": {
-    "db:migrate": "bunx drizzle-kit migrate --config drizzle.config.ts",
+    "db:migrate": "bun src/db/migrate.ts",
     "db:generate": "bun src/db/generate-migration.ts",
     "db:reset": "bun src/db/reset.ts",
     "dev": "bun --watch src/server/index.ts",
@@ -33,6 +33,7 @@
     "docs:check": "bun install --cwd tools/typedoc && tools/typedoc/node_modules/.bin/typedoc --emit none"
   },
   "dependencies": {
+    "@apidevtools/json-schema-ref-parser": "^16.0.7",
     "@noble/hashes": "^2.4.0",
     "@serenity-kit/opaque": "^1.1.0",
     "@tursodatabase/database": "^0.8.3",
@@ -40,10 +41,7 @@
     "ajv-formats": "^3.0.1",
     "change-case": "^5.4.4",
     "dotenv": "^18.0.10",
-    "drizzle-kit": "1.0.0-rc.5-ab785fc",
-    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "hono": "^4.13.18",
-    "ts-japi": "^1.12.8",
     "tweetnacl": "^1.0.3",
     "yaml": "^2.9.1"
   },

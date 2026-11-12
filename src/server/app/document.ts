@@ -1,5 +1,4 @@
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { ErrorSerializer, JapiError } from 'ts-japi'
 import type { AppContext } from '../context.ts'
 import type { ListQuery } from '../query.ts'
 
@@ -9,8 +8,6 @@ export const JSON_API = 'application/vnd.api+json'
 /** The `jsonapi` member added to every document. */
 export const JSON_API_VERSION = { version: '1.1' }
 
-const errorSerializer = new ErrorSerializer()
-
 type Links = { self?: string, related?: string }
 
 /** A resource object as far as link decoration cares. */
@@ -18,7 +15,8 @@ export type ResourceObject =
   { id?: string
   , type: string
   , links?: Links
-  , relationships?: Record<string, { links?: Links }>
+  , attributes?: Record<string, unknown>
+  , relationships?: Record<string, { data?: unknown, links?: Links }>
   }
 
 /** A JSON:API document before links are added. */
@@ -54,15 +52,16 @@ export const jsonApi =
  * @param parameter - The query parameter or attribute pointer at fault, if any.
  */
 export const errorDocument =
-  (status: number, title: string, detail: string, parameter?: string) => {
-    return errorSerializer.serialize(
-      new JapiError(
-        { status
-        , title
-        , detail
-        , ...(parameter ? { source: { parameter } } : {})
-        }))
-  }
+  (status: number, title: string, detail: string, parameter?: string) => (
+    { errors:
+        [ { status: String(status)
+          , title
+          , detail
+          , ...(parameter ? { source: { parameter } } : {})
+          }
+        ]
+    , jsonapi: { version: '1.0' }
+    })
 
 /**
  * Build first/last/prev/next links for a paginated collection.

@@ -22,13 +22,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.production.local
 .env.local
 
-# generated database and drizzle schema
+# generated database and migrations
 .db
 .db-shm
 .db-wal
 .db-journal
-.drizzleExports/
-.drizzle
+.migrations
 
 # caches
 .eslintcache

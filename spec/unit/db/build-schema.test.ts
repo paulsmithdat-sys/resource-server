@@ -18,19 +18,19 @@ describe('buildSchema default columns', () => {
     const config = columnConfig(
       { title: 'Widget', type: 'object', properties: {} })
 
-    expect(config.name).toBe('widget')
-    expect(config.columns.map(x => x.name))
+    expect(config.tableName).toBe('widget')
+    expect(config.columns.map(x => x.columnName))
       .toEqual(['id', 'updated_at', 'owner', 'visibility'])
 
     const [id, updatedAt] = config.columns
-    expect(id!.getSQLType()).toBe('blob')
-    expect(id!.primary).toBe(true)
-    expect(id!.notNull).toBe(true)
-    expect(id!.hasDefault).toBe(true)
+    expect(id!.sql.type).toBe('blob')
+    expect(id!.sql.primaryKey).toBe(true)
+    expect(id!.sql.notNull).toBe(true)
+    expect(id!.sql.default).toBeDefined()
 
-    expect(updatedAt!.getSQLType()).toBe('integer')
-    expect(updatedAt!.notNull).toBe(true)
-    expect(updatedAt!.hasDefault).toBe(true)
+    expect(updatedAt!.sql.type).toBe('integer')
+    expect(updatedAt!.sql.notNull).toBe(true)
+    expect(updatedAt!.sql.default).toBeDefined()
   })
 
   test('keeps declared id and updated_at columns instead of injecting duplicates', () => {
@@ -43,7 +43,7 @@ describe('buildSchema default columns', () => {
         }
       })
 
-    expect(config.columns.map(x => x.name))
+    expect(config.columns.map(x => x.columnName))
       .toEqual(['id', 'updated_at', 'owner', 'visibility'])
   })
 
@@ -57,7 +57,7 @@ describe('buildSchema default columns', () => {
         }
       })
 
-    expect(config.columns.map(x => x.name))
+    expect(config.columns.map(x => x.columnName))
       .toEqual(['id', 'updated_at', 'owner', 'visibility', 'display_name', 'created_at'])
   })
 })
@@ -81,18 +81,18 @@ describe('buildSchema column types', () => {
         }
       })
 
-    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
-    expect(byName.name!.getSQLType()).toBe('text')
-    expect(byName.uuid!.getSQLType()).toBe('blob')
-    expect(byName.when!.getSQLType()).toBe('integer')
-    expect(byName.bytes!.getSQLType()).toBe('blob')
-    expect(byName.count!.getSQLType()).toBe('integer')
-    expect(byName.ratio!.getSQLType()).toBe('real')
-    expect(byName.active!.getSQLType()).toBe('integer')
-    expect(byName.active!.dataType).toBe('boolean')
-    expect(byName.meta!.dataType).toContain('json')
-    expect(byName.tags!.dataType).toContain('json')
-    expect(byName.kind!.enumValues).toEqual(['one', 'two'])
+    const byName = Object.fromEntries(config.columns.map(x => [x.columnName, x]))
+    expect(byName.name!.sql.type).toBe('text')
+    expect(byName.uuid!.sql.type).toBe('blob')
+    expect(byName.when!.sql.type).toBe('integer')
+    expect(byName.bytes!.sql.type).toBe('blob')
+    expect(byName.count!.sql.type).toBe('integer')
+    expect(byName.ratio!.sql.type).toBe('real')
+    expect(byName.active!.sql.type).toBe('integer')
+    expect(byName.active!.schema.type).toBe('boolean')
+    expect(byName.meta!.schema.type).toBe('object')
+    expect(byName.tags!.schema.type).toBe('array')
+    expect(byName.kind!.schema.enum).toEqual(['one', 'two'])
   })
 
   test('honours required, x-unique, x-primary, and defaults', () => {
@@ -109,14 +109,14 @@ describe('buildSchema column types', () => {
         }
       })
 
-    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
-    expect(byName.name!.notNull).toBe(true)
-    expect(byName.name!.isUnique).toBe(true)
-    expect(byName.slug!.isUnique).toBe(true)
-    expect(byName.slug!.hasDefault).toBe(true)
-    expect(byName.count!.hasDefault).toBe(true)
-    expect(byName.payload!.hasDefault).toBe(true)
-    expect(byName.flags!.hasDefault).toBe(true)
+    const byName = Object.fromEntries(config.columns.map(x => [x.columnName, x]))
+    expect(byName.name!.sql.notNull).toBe(true)
+    expect(byName.name!.sql.unique).toBe(true)
+    expect(byName.slug!.sql.unique).toBe(true)
+    expect(byName.slug!.sql.default).toBeDefined()
+    expect(byName.count!.sql.default).toBeDefined()
+    expect(byName.payload!.sql.default).toBeDefined()
+    expect(byName.flags!.sql.default).toBeDefined()
   })
 
   test('rejects duplicate columns, primary keys, and table names', () => {
@@ -157,11 +157,11 @@ describe('buildSchema union types', () => {
         }
       })
 
-    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
-    expect(byName.rank!.getSQLType()).toBe('integer')
-    expect(byName.label!.getSQLType()).toBe('text')
-    expect(byName.label!.enumValues).toEqual(['a', 'b'])
-    expect(byName.score!.getSQLType()).toBe('real')
+    const byName = Object.fromEntries(config.columns.map(x => [x.columnName, x]))
+    expect(byName.rank!.sql.type).toBe('integer')
+    expect(byName.label!.sql.type).toBe('text')
+    expect(byName.label!.schema.enum).toEqual(['a', 'b'])
+    expect(byName.score!.sql.type).toBe('real')
   })
 
   test('leaves nullability to required, keeping columns nullable', () => {
@@ -175,9 +175,9 @@ describe('buildSchema union types', () => {
         }
       })
 
-    const byName = Object.fromEntries(config.columns.map(x => [x.name, x]))
-    expect(byName.rank!.notNull).toBe(true)
-    expect(byName.score!.notNull).toBe(false)
+    const byName = Object.fromEntries(config.columns.map(x => [x.columnName, x]))
+    expect(byName.rank!.sql.notNull).toBe(true)
+    expect(byName.score!.sql.notNull).toBe(false)
   })
 
   test('normalizes unions nested in object properties and array items', () => {

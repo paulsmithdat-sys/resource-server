@@ -28,16 +28,6 @@ const loadUserSchemas =
     return loaded.filter(x => x.source.startsWith(target))
   }
 
-const articleModule = `
-export const helper = 42
-
-export const articleSchema =
-  { title: 'Article'
-  , type: 'object'
-  , properties: { heading: { type: 'string' } }
-  }
-`
-
 const magazineYaml = `
 title: Magazine
 type: object
@@ -51,10 +41,9 @@ properties:
 `
 
 describe('loadSchemas', () => {
-  test('loads .ts, .json, .yaml, .yml files and nested folders', async () => {
+  test('loads .json, .yaml and .yml files from a folder, not its subfolders', async () => {
     const target = await makeDir(
-      { 'article.ts': articleModule
-      , 'book.json': JSON.stringify(
+      { 'book.json': JSON.stringify(
           { title: 'Book', type: 'object', properties: { name: { type: 'string' } } })
       , 'magazine.yaml': magazineYaml
       , 'note.yml':
@@ -63,22 +52,38 @@ describe('loadSchemas', () => {
           'title: Pen\ntype: object\nproperties:\n  color: { type: string }\n'
       , 'README.md': 'docs'
       , '.hidden': 'dotfile'
-      , 'skip.test.ts': 'export const x = 1'
       , 'skip.test.yaml': 'title: Skip\ntype: object\n'
       })
 
     const user = await loadUserSchemas(target)
-    const titles = user.map(x => x.schema.title).sort()
-    expect(titles).toEqual(['Article', 'Book', 'Issue', 'Magazine', 'Note', 'Pen'])
+    expect(user.map(x => x.schema.title).sort())
+      .toEqual(['Book', 'Issue', 'Magazine', 'Note'])
 
+    // Both YAML documents share one file
     const byTitle = Object.fromEntries(user.map(x => [x.schema.title, x]))
-    // The .ts module's non-schema export is skipped by design
-    expect(Object.keys(byTitle)).not.toContain('helper')
-
-    // Both YAML documents share one file but are named by their titles
     expect(byTitle.Magazine!.importPath).toBe(byTitle.Issue!.importPath)
-    expect(byTitle.Magazine!.exportName).toBe('MagazineSchema')
-    expect(byTitle.Issue!.exportName).toBe('IssueSchema')
+  })
+
+  test('resolves $ref to other files and to $defs', async () => {
+    const target = await makeDir(
+      { 'email.yaml': 'type: string\nformat: email\n'
+      , 'person.yaml':
+          'title: Person\ntype: object\n$defs:\n  count: { type: integer }\n'
+          + 'properties:\n  email: { $ref: email.yaml }\n  visits: { $ref: "#/$defs/count" }\n'
+      })
+
+    const person = (await loadUserSchemas(join(target, 'person.yaml')))[0]!
+    expect(person.schema.properties).toEqual(
+      { email: { type: 'string', format: 'email' }, visits: { type: 'integer' } })
+  })
+
+  test('fails when a $ref cannot be resolved', async () => {
+    const target = await makeDir(
+      { 'person.yaml':
+          'title: Person\ntype: object\nproperties:\n  email: { $ref: missing.yaml }\n'
+      })
+    await expect(loadUserSchemas(join(target, 'person.yaml')))
+      .rejects.toThrow('person.yaml: document 1:')
   })
 
   test('expands a single schema file target', async () => {

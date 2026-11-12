@@ -1,4 +1,4 @@
-import type { Registry, ResourceMeta } from './registry.ts'
+import type { Registry, RelationshipMeta, ResourceMeta } from './registry.ts'
 import { badRequest } from './errors.ts'
 
 export type SortField =
@@ -9,8 +9,12 @@ export type SortField =
 export const FILTER_OPERATORS =
   ['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in', 'nin', 'contains', 'starts', 'ends', 'null']
 
+/** One `filter[path.field][operator]=value` parameter, with its relationship path resolved. */
 export type FilterField =
-  { field: string
+  { key: string
+  /** The relationships followed from the requested resource, in order (empty for its own columns). */
+  , path: { from: ResourceMeta, label: string, to: ResourceMeta }[]
+  , field: string
   , operator: string
   , value: string
   }
@@ -21,8 +25,16 @@ export type ListQuery =
   , sort: SortField[]
   , filters: FilterField[]
   , fields: Map<string, Set<string>>
+  /** The relationships to include directly, the first step of each `include` path. */
   , include: string[]
+  /** All `include` paths as a tree: `a.b` puts b under a. */
+  , includeTree: IncludeTree
   }
+
+/** Relationship labels to include, each with what to include through it. */
+export type IncludeTree = Map<string, IncludeTree>
+
+const MAX_INCLUDE_DEPTH = 3
 
 const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 100
@@ -81,8 +93,7 @@ const parseSort =
 
 /** Read filter[field]=value and filter[field][operator]=value parameters. */
 const parseFilters =
-  (params: URLSearchParams, resource: ResourceMeta) => {
-    const allowed = new Set(resource.columns)
+  (params: URLSearchParams, resource: ResourceMeta, registry: Registry) => {
     const result: FilterField[] = []
 
     for (const [key, value] of params) {
@@ -92,13 +103,30 @@ const parseFilters =
         throw badRequest(
           'Filters must look like filter[field]=value or filter[field][operator]=value', key)
 
-      const [, field, operator = 'eq'] = match
-      if (!allowed.has(field!))
-        throw badRequest(`Cannot filter by unknown field "${field}"`, key)
+      const [, name, operator = 'eq'] = match
+      const labels = name!.split('.')
+      const field = labels.pop()!
+      if (labels.length > MAX_INCLUDE_DEPTH)
+        throw badRequest(
+          `Filter path "${name}" is deeper than ${MAX_INCLUDE_DEPTH} relationships`, key)
+
+      const path: FilterField['path'] = []
+      let target = resource
+      for (const label of labels) {
+        const relationship = target.relationships[label]
+        const next = relationship && registry.get(relationship.type)
+        if (!next)
+          throw badRequest(
+            `Unknown relationship "${label}" for resource "${target.type}"`, key)
+        path.push({ from: target, label, to: next })
+        target = next
+      }
+      if (!target.columns.includes(field))
+        throw badRequest(`Cannot filter by unknown field "${name}"`, key)
       if (!FILTER_OPERATORS.includes(operator))
         throw badRequest(
           `Unknown filter operator "${operator}"; use one of ${FILTER_OPERATORS.join(', ')}`, key)
-      result.push({ field: field!, operator, value })
+      result.push({ key, path, field, operator, value })
     }
 
     return result
@@ -134,35 +162,51 @@ const parseFields =
     return fields
   }
 
+/** Read `include=a,b.c` into a tree, checking every step names a relationship of the resource before it. */
 const parseInclude =
-  (params: URLSearchParams, resource: ResourceMeta) => {
-    const raw = params.get('include')
-    if (raw === null) return []
+  (params: URLSearchParams, resource: ResourceMeta, registry: Registry) => {
+    const tree: IncludeTree = new Map()
 
-    const result: string[] = []
-    for (const entry of raw.split(',')) {
-      const label = entry.trim()
-      if (label.length === 0) continue
-      if (!resource.relationships[label])
+    for (const entry of (params.get('include') ?? '').split(',')) {
+      const path = entry.trim()
+      if (path.length === 0) continue
+
+      const labels = path.split('.')
+      if (labels.length > MAX_INCLUDE_DEPTH)
         throw badRequest(
-          `Unknown relationship "${label}" for resource "${resource.type}"`, 'include')
-      if (!result.includes(label)) result.push(label)
+          `Include path "${path}" is deeper than ${MAX_INCLUDE_DEPTH} relationships`, 'include')
+
+      let level = tree
+      let from: ResourceMeta | undefined = resource
+      for (const label of labels) {
+        const relationship: RelationshipMeta | undefined = from?.relationships[label]
+        if (!from || !relationship)
+          throw badRequest(
+            `Unknown relationship "${label}" for resource "${from?.type ?? path}"`, 'include')
+        if (!level.has(label)) level.set(label, new Map())
+        level = level.get(label)!
+        from = registry.get(relationship.type)
+      }
     }
 
-    return result
+    return tree
   }
 
 export const parseListQuery =
   ( params: URLSearchParams
   , resource: ResourceMeta
-  , registry: Registry): ListQuery => (
+  , registry: Registry): ListQuery => {
+    const includeTree = parseInclude(params, resource, registry)
+    return (
     { pageNumber:
         integerParameter(params, 'page[number]', 1, 1, 1_000_000)
     , pageSize:
         integerParameter(
           params, 'page[size]', DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE)
     , sort: parseSort(params, resource)
-    , filters: parseFilters(params, resource)
+    , filters: parseFilters(params, resource, registry)
     , fields: parseFields(params, registry)
-    , include: parseInclude(params, resource)
+    , include: [...includeTree.keys()]
+    , includeTree
     })
+  }

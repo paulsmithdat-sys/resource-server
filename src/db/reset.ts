@@ -5,8 +5,7 @@ const projectRoot = join(import.meta.dir, '../..')
 const backupRoot = '/tmp/opencode'
 
 const paths =
-  [ '.drizzle'
-  , '.drizzleExports'
+  [ '.migrations'
   , '.db'
   , '.db-shm'
   , '.db-wal'

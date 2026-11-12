@@ -1,4 +1,3 @@
-import { foreignKey, index, unique } from 'drizzle-orm/sqlite-core'
 import { snakeCase, type JSONSchema, type RelationConfig } from '../schema-types.ts'
 
 const relationFieldTypes =

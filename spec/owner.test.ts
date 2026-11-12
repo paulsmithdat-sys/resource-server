@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import type { RowDatabase } from '../src/server/database.ts'
 import { uuidToBuffer } from '../src/server/uuid.ts'
 import { postDocument, createTestServer } from './helpers/test-server.ts'
@@ -44,11 +43,7 @@ describe('owner', () => {
       , onDelete: 'set null'
       })
 
-    const config = getTableConfig(tag.drizzleSchema)
-    expect(
-      config.indexes.some(
-        index => (index.config.columns[0] as any).name === 'owner'))
-      .toBe(true)
+    expect(tag.indexes).toContain('owner')
   })
 
   test('defaults to null when omitted', async () => {

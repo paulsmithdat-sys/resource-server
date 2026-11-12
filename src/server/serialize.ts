@@ -1,9 +1,8 @@
-import { Relator, Serializer } from 'ts-japi'
+import type { ApiDocument, ResourceObject } from './app/document.ts'
 import type { Row } from './database.ts'
 import type { Registry, RelationshipMeta, ResourceMeta } from './registry.ts'
+import type { IncludeTree } from './query.ts'
 import type { RowReader } from './scope.ts'
-
-export type Serializers = Map<string, Serializer<Record<string, unknown>>>
 
 const selectedAttributes =
   (resource: ResourceMeta, fields: Map<string, Set<string>>) => {
@@ -55,45 +54,92 @@ const parseRelationValue =
     return relationship.cardinality === 'many' ? rows : rows[0] ?? null
   }
 
-export const createSerializers =
+/** Loads readable rows of a resource by id, embedding the given relationships (used to follow nested includes). */
+export type RowExpander =
+  (resource: ResourceMeta, ids: string[], labels: string[]) => Promise<Row[]>
+
+const identifier = (target: ResourceMeta) => (row: Row) => ({ type: target.type, id: String(row.id) })
+
+/**
+ * Builds a JSON:API document for a row or rows: relationship linkage for the
+ * primary resources, and `included` for every path in the include tree.
+ * Rows reached through a nested path are loaded with `expand`, which applies
+ * the viewer's read access again at each step.
+ */
+export const createSerializer =
   ( registry: Registry
   , fields: Map<string, Set<string>>
-  , include: string[]
+  , tree: IncludeTree
   , primaryType: string
-  , read: RowReader = async (_table, rows) => rows): Serializers => {
-    const serializers: Serializers = new Map()
+  , read: RowReader
+  , expand: RowExpander) => {
+    const included = new Map<string, ResourceObject>()
 
-    for (const resource of registry.resources.values()) {
-      const projection =
-        Object.fromEntries(
-          selectedAttributes(resource, fields).map(x => [x, 1])) as Record<string, 0 | 1>
-      serializers.set(
-        resource.type
-        , new Serializer(resource.type, { projection }))
-    }
+    const toObject =
+      (resource: ResourceMeta, row: Row): ResourceObject => (
+        { type: resource.type
+        , id: String(row.id)
+        , attributes:
+            Object.fromEntries(
+              selectedAttributes(resource, fields)
+                .filter(x => x in row)
+                .map(x => [x, row[x]]))
+        , relationships: {}
+        })
 
-    for (const resource of registry.resources.values()) {
-      const serializer = serializers.get(resource.type)!
-      const relators: Record<string, Relator<Row, Row>> = {}
+    /** Add linkage for `labels` to the objects of `rows`, and collect what the tree includes. */
+    const link =
+      async ( resource: ResourceMeta
+      , rows: Row[]
+      , objects: Map<string, ResourceObject>
+      , labels: string[]
+      , level: IncludeTree): Promise<void> => {
+        for (const label of labels) {
+          const relationship = resource.relationships[label]!
+          const target = registry.resources.get(relationship.type)
+          if (!target) continue
 
-      for (const label of
-        (resource.type === primaryType
-          ? selectedRelationships(resource, fields, include)
-          : [])) {
-        const relationship = resource.relationships[label]!
-        const target = serializers.get(relationship.type)
-        if (!target) continue
+          const related: Row[] = []
+          for (const row of rows) {
+            const value = await parseRelationValue(row[label], relationship, read)
+            const found = [value ?? []].flat() as Row[]
+            objects.get(String(row.id))!.relationships![label] =
+              { data:
+                  Array.isArray(value) ? found.map(identifier(target))
+                  : found[0] ? identifier(target)(found[0])
+                  : null
+              }
+            related.push(...found)
+          }
 
-        relators[label] =
-          new Relator(
-            async (row: Record<string, unknown>) =>
-              parseRelationValue(row[label], relationship, read)
-            , target
-            , { relatedName: label })
+          const below = level.get(label)
+          if (!below) continue
+
+          const reached = new Map<string, ResourceObject>()
+          for (const row of related) {
+            const key = `${target.type}:${row.id}`
+            if (!included.has(key)) included.set(key, toObject(target, row))
+            reached.set(String(row.id), included.get(key)!)
+          }
+          if (below.size === 0 || reached.size === 0) continue
+
+          const next = [...below.keys()]
+          await link(target, await expand(target, [...reached.keys()], next), reached, next, below)
+        }
       }
 
-      serializer.setRelators(relators)
-    }
+    return async (data: Row | Row[]): Promise<ApiDocument> => {
+      const resource = registry.resources.get(primaryType)!
+      const rows = [data].flat()
+      const objects = new Map(rows.map(x => [String(x.id), toObject(resource, x)]))
+      await link(resource, rows, objects, selectedRelationships(resource, fields, [...tree.keys()]), tree)
 
-    return serializers
+      const document: ApiDocument =
+        { data: Array.isArray(data) ? rows.map(x => objects.get(String(x.id))!) : objects.get(String(data.id))! }
+      if (tree.size > 0) {
+        for (const key of objects.keys()) included.delete(`${primaryType}:${key}`)
+        document.included = [...included.values()]
+      }
+      return document
+    }
   }

@@ -1,10 +1,9 @@
-import { readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import * as opaque from '@serenity-kit/opaque'
 import { connect } from '@tursodatabase/database'
 import type { Hono } from 'hono'
 import { buildSchema } from '../../src/db/build-schema.ts'
 import { loadSchemas } from '../../src/db/load-schemas.ts'
+import { applyMigrations } from '../../src/db/migrate.ts'
 import { createApp } from '../../src/server/app/index.ts'
 import { createRowDatabase } from '../../src/server/database.ts'
 import { seedDocuments } from '../../src/seed/index.ts'
@@ -15,38 +14,6 @@ await opaque.ready
 
 export const opaqueServerSetup =
   process.env.OPAQUE_SERVER_SETUP ?? opaque.server.createSetup()
-
-const drizzleRoot = join(import.meta.dir, '../../.drizzle')
-
-const migrationSql =
-  async () => {
-    const entries = await readdir(drizzleRoot, { withFileTypes: true })
-    const directories =
-      entries
-        .filter(x => x.isDirectory())
-        .map(x => x.name)
-        .sort()
-
-    if (directories.length === 0)
-      throw new Error(`No migrations found in ${drizzleRoot}`)
-
-    const statements: string[] = []
-    for (const directory of directories) {
-      const sql =
-        await readFile(join(drizzleRoot, directory, 'migration.sql'), 'utf8')
-      for (const statement of sql.split('--> statement-breakpoint')) {
-        const trimmed = statement.trim()
-        if (trimmed) statements.push(trimmed)
-      }
-    }
-    return statements
-  }
-
-export const applyMigrations =
-  async (db: { exec: (sql: string) => Promise<void> }) => {
-    for (const statement of await migrationSql())
-      await db.exec(statement)
-  }
 
 export const createTestServer =
   async (options: { auth?: boolean, session?: boolean, admins?: string[] } = {}) => {

@@ -1,16 +1,11 @@
-import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
-
-/** The chainable column-builder methods this project uses. */
-export type ColumnBuilder = {
-  /** Set the column's default value. */
-  default(value: unknown): ColumnBuilder
-  /** Forbid null values. */
-  notNull(): ColumnBuilder
-  /** Require every value to be different. */
-  unique(): ColumnBuilder
-  /** Make this the table's primary key. */
-  primaryKey(): ColumnBuilder
-}
+/** How a column is declared in SQLite. `default` is a SQL expression. */
+export type ColumnSql =
+  { type: 'text' | 'integer' | 'real' | 'blob'
+  , notNull: boolean
+  , unique: boolean
+  , primaryKey: boolean
+  , default?: string
+  }
 
 /** Whether a relation links to one row or to many. */
 export type Cardinality = 'one' | 'many'
@@ -103,7 +98,6 @@ export type LoadedSchema =
   { schema: JSONSchema
   , source: string
   , importPath: string
-  , exportName: string
   }
 
 /** A column built from a schema property. */
@@ -111,7 +105,7 @@ export type ColumnDef =
   { key: string
   , columnName: string
   , schema: JSONSchemaProperty
-  , drizzle: ColumnBuilder
+  , sql: ColumnSql
   , required: boolean
   , injected: boolean
   , exposed: boolean
@@ -130,7 +124,8 @@ export type ForeignKeyDef =
 export type TableDef =
   { key: string
   , tableName: string
-  , drizzleSchema: SQLiteTable
+  , createSql: string
+  , indexSql: string[]
   , schema: JSONSchema
   , columns: ColumnDef[]
   , isSystem: boolean

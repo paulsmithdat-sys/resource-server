@@ -1,13 +1,13 @@
 # Architecture
 
 Serber is a schema-first resource server. JSON Schema files are the source of
-truth; the generator derives Drizzle table definitions, SQLite migrations,
-views, custom DDL, typed exports, and a JSON:API registry from them.
+truth; the generator derives SQLite tables, migrations, views, triggers, and a
+JSON:API registry from them.
 
 ## Generation pipeline
 
 ```text
-src/schema/**/*.ts
+src/schema/*.yaml, src/schema/system/*.yaml
         |
         v
    loadSchemas()          discover and validate schema modules
@@ -18,15 +18,14 @@ src/schema/**/*.ts
         v
    buildSchema()          build table plans, columns, FKs, indexes, triggers
         |
-        +--> writeExports()          .drizzleExports/index.ts
         +--> buildViews()            views in built schema
-        +--> buildCustomDdl()        trigger/view hashes
-        +--> drizzle-kit generate    .drizzle/<timestamp>/migration.sql
-        +--> postprocessMigration()  IF NOT EXISTS, trigger/view replacement
+        +--> databaseObjects()       tables, triggers and views
+        +--> planMigration()         difference from schema-state.json
+        +--> generateMigrations()    .migrations/<timestamp>_<name>/migration.sql
 ```
 
 The build is deterministic. Given the same schema inputs, it produces the same
-tables in the same order and the same generated export. Running the generator
+tables in the same order. Running the generator
 again with unchanged inputs produces no new migration.
 
 ### Loaded schemas
@@ -50,7 +49,7 @@ carried with its source path, import path, and export name.
 definitions, triggers, and lookup maps. Each table definition contains:
 
 - declared and injected columns;
-- Drizzle table metadata;
+- the `CREATE TABLE` and `CREATE INDEX` SQL;
 - foreign keys with delete/update actions;
 - indexes;
 - normalized relation metadata with an effective `exposed` flag;
@@ -59,17 +58,19 @@ definitions, triggers, and lookup maps. Each table definition contains:
 The same built schema is consumed by migration generation and by the runtime
 application, so the database and API cannot drift.
 
-### Migrations and custom DDL
+### Migrations
 
-Drizzle Kit tracks tables, columns, indexes, and foreign keys. Triggers and views
-are not part of its snapshot, so Serber manages them separately:
+`.migrations/schema-state.json` records the SQL of every table, trigger and view
+the migrations have created. `planMigration()` compares it with the built
+schema:
 
-- `.drizzle/custom-ddl-state.json` stores hashes of the current trigger and view
-  SQL;
-- changed or new custom DDL is appended to the next migration;
-- removed views and triggers are dropped in the next migration;
-- triggers are replaced with `DROP TRIGGER IF EXISTS` plus `CREATE TRIGGER`;
-- views are replaced with `DROP VIEW IF EXISTS` plus `CREATE VIEW`;
+- a new table, trigger or view is created;
+- a changed table is rebuilt (`CREATE TABLE __new_x`, copy the columns it still
+  has, `DROP TABLE x`, rename), then its indexes are recreated;
+- a changed view or trigger is dropped and created again;
+- when any table changes, every view and trigger is dropped first and created
+  again last, because SQLite checks them when a table is renamed;
+- removed objects are dropped;
 - applied migrations are immutable.
 
 See [development.md](./development.md) for the exact commands.
@@ -183,8 +184,7 @@ src/
   server/        Hono app, registry, queries, serializers, mutations, guards
 spec/            end-to-end API, auth, and client tests
 doc/             detailed documentation
-.drizzle/        generated migrations and custom-DDL state
-.drizzleExports/ generated Drizzle schema exports
+.migrations/     generated migrations and schema-state.json
 ```
 
 ## Design invariants

@@ -22,7 +22,7 @@ const configPath = (dir: string) => join(dir, 'config.json')
 /** Fingerprint of everything that decides the tables, so serve can tell the schemas changed since init. */
 export const schemaHash =
   (loaded: LoadedSchema[]) => {
-    const content = loaded.map(x => [x.importPath, x.exportName, x.schema])
+    const content = loaded.map(x => [x.importPath, x.schema])
     return createHash('sha256').update(JSON.stringify(content)).digest('hex')
   }
 
@@ -52,24 +52,7 @@ export const init =
       throw new Error('Give init a schema folder or files, e.g. `resource-server init schemas`.')
 
     const loaded = await loadSchemas({ schemaDir: options.schemas })
-    const exportPath = join(dir, 'exports.ts')
-    const drizzleConfig = join(dir, 'drizzle.config.ts')
-
-    await writeIfChanged(join(dir, '.gitignore'), 'exports.ts\ndrizzle.config.ts\n')
-    await writeIfChanged(
-      drizzleConfig,
-      'export default '
-      + JSON.stringify(
-        { out: join(dir, 'migrations')
-        , schema: exportPath
-        , dialect: 'turso'
-        , dbCredentials: { url: process.env.DB_PATH ?? '.db' }
-        }, null, 2)
-      + '\n')
-
-    const { built } = await generateMigrations(
-      { migrationsDir: join(dir, 'migrations'), exportPath, drizzleConfig },
-      loaded)
+    const { built } = await generateMigrations(join(dir, 'migrations'), loaded)
 
     const config: ProjectConfig =
       { version: 1

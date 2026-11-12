@@ -1,4 +1,3 @@
-import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { buildSchema } from '../../../src/db/build-schema.ts'
 import
   { pascalCase
@@ -12,8 +11,7 @@ export const loadedSchema =
   (schema: JSONSchema): LoadedSchema => (
     { schema
     , source: `/test/${schema.title}.ts`
-    , importPath: `src/schema/${snakeCase(schema.title)}.ts`
-    , exportName: `${pascalCase(schema.title)}Schema`
+    , importPath: `src/schema/${snakeCase(schema.title)}.yaml`
     })
 
 export const buildOne =
@@ -32,6 +30,6 @@ export const columnConfig =
     const table = tableName
       ? built.tables[tableName]!
       : built.orderedTables[0]!
-    return getTableConfig(table.drizzleSchema)
+    return table
   }
 

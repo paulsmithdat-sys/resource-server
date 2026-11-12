@@ -25,7 +25,7 @@ OPAQUE_SERVER_SETUP=...
 Optional:
 
 ```bash
-SCHEMA_DIR=./schemas      # directory of .json or .ts schema files
+SCHEMA_DIR=./schemas      # directory of .json or .yaml schema files
 SERBER_ADMINS=alice,bob   # usernames that always hold the admin role
 MIGRATE_ON_START=true     # set to false to apply migrations yourself
 ```
@@ -60,7 +60,7 @@ match the recorded fingerprint, so run `init` again after a schema change.
 For developing the library itself:
 
 ```bash
-# generate the dynamic Drizzle export and a migration
+# write a migration for any schema change
 bun run db:generate
 
 # apply migrations
@@ -70,7 +70,7 @@ bun run db:migrate
 bun run db:reset
 
 # run all tests (`bun run test` generates the migrations first; plain `bun test`
-# needs `bun run db:generate` once, because .drizzle is git-ignored)
+# needs `bun run db:generate` once, because .migrations is git-ignored)
 bun test
 
 # type-check
@@ -85,19 +85,25 @@ bun run start
 
 ## Database and migrations
 
-The database file is `DB_PATH` (default `.db`). Drizzle Kit generates migrations
-into `.drizzle/<timestamp>/migration.sql`. Applied migrations are immutable.
-
-Triggers and views are tracked by hashes in `.drizzle/custom-ddl-state.json`.
-Do not edit generated files in `.drizzle/` or `.drizzleExports/` by hand.
+The database file is `DB_PATH` (default `.db`). `bun run db:generate` writes a
+migration into `.migrations/<timestamp>_<name>/migration.sql` and records what
+the database now contains in `.migrations/schema-state.json`. Applied migrations
+are immutable. Do not edit the generated files by hand.
 
 `bun run db:generate`:
 
 1. loads and builds the schema;
-2. writes `.drizzleExports/index.ts` if it changed;
-3. asks Drizzle Kit to generate a migration;
-4. appends changed trigger/view SQL and drops removed triggers/views;
-5. updates custom-DDL hashes.
+2. compares the tables, triggers and views with the recorded state;
+3. writes a migration with the difference, or nothing if there is none:
+   new tables are created, a changed table is rebuilt keeping the rows of the
+   columns it still has, and removed tables are dropped;
+4. drops and recreates views and triggers around any table change, because
+   SQLite checks them when a table is renamed;
+5. updates the recorded state.
+
+`bun run db:migrate` applies the migrations not yet recorded in the `__migrations`
+table. Each runs in one transaction with foreign keys off, so rebuilding a
+table does not cascade deletes into its children.
 
 Running it twice with unchanged schemas must not create a second migration.
 
@@ -171,7 +177,7 @@ row database.
 
 ## Adding a schema
 
-1. Add `src/schema/<name>.ts` exporting a JSON Schema object.
+1. Add `src/schema/<name>.yaml` holding a JSON Schema object.
 2. Use a unique `title`; it becomes the snake_case table name.
 3. Declare relations under `x-relations`.
 4. Run `bun run db:generate`.

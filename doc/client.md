@@ -174,8 +174,9 @@ const client = createResourceServerClient({ autoSign: true })
 A signed request adds `X-Serber-Timestamp`, `X-Serber-Nonce`, and
 `X-Serber-Signature`. The signature covers the method, path with query, session
 id, timestamp, nonce, and the SHA-256 of the body. Signing needs a session and
-throws a `401 ResourceServerError` otherwise. The client uses Web Crypto for the
-digest, so the runtime must provide `crypto.subtle`.
+throws a `401 ResourceServerError` otherwise. The client hashes in pure JavaScript
+(`@noble/hashes`), never Web Crypto, so signing works over plain HTTP on internal
+networks.
 
 Unsigned requests still carry the bearer token. A request is never retried
 automatically; if a nonce or timestamp is rejected, the caller decides what to
@@ -233,7 +234,7 @@ import type {
 ## Portability
 
 `resource-server/client` avoids `Buffer`, `Bun.*`, and imports from `src/server`.
-It uses `tweetnacl`, Web Crypto, and standard fetch types, so the same code runs
+It uses `tweetnacl`, `@noble/hashes`, and standard fetch types (never Web Crypto), so the same code runs
 in a browser and on a Bun or Node server. The one server-only piece is OPAQUE,
 which `@serenity-kit/opaque` provides in both environments.
 

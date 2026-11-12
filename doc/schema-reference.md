@@ -6,22 +6,22 @@ derives tables, relations, views, and API resources.
 
 ## File formats
 
-Schema files are `.ts`, `.json`, `.yaml`, or `.yml`:
+Schema files are `.json`, `.yaml`, or `.yml`:
 
-- `.ts` modules export schema objects as named exports. Exports that are not
-  schema objects (helpers, types) are ignored.
 - `.json` files hold exactly one schema object.
 - `.yaml` and `.yml` files may hold several schemas, one per `---` document.
   Every document is named by its own `title`, so a file can be named anything
   and hold any number of schemas.
-- Schema folders are scanned recursively; subdirectories are loaded too.
-- `*.test.ts`, `*.test.json`, `*.test.yaml`, and `*.test.yml` files, dotfiles,
+- A schema folder is read one level deep; subdirectories are not loaded.
+- `$ref` to another file or to `$defs` is resolved when the schema is loaded;
+  circular references fail.
+- `*.test.json`, `*.test.yaml`, and `*.test.yml` files, dotfiles,
   `README*`, and `LICENSE*` are skipped.
 
 The loader fails loudly instead of skipping silently:
 
 - an unrecognized file in a schema folder (anything that is not one of the
-  four extensions above, and not skipped) errors, listing every offending
+  three extensions above, and not skipped) errors, listing every offending
   file;
 - a `.json`, `.yaml`, or `.yml` file whose top level is not a schema object
   (it needs a `title` and either `properties` or `type: object`) errors, naming
@@ -65,7 +65,7 @@ only accepted value.
 
 ## Type mapping
 
-| JSON Schema | SQLite / Drizzle |
+| JSON Schema | SQLite |
 | --- | --- |
 | `string` | `text` |
 | `string` with `format: uuid` | `blob`, default `uuid7()` when used as an ID |

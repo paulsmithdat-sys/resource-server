@@ -1,0 +1,20 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Feedback
+type: object
+additionalProperties: false
+description: Feedback anyone can submit without an account; rows from anonymous senders have no owner
+x-access:
+  create: public
+  roles:
+    admin:
+      - read
+      - update
+      - delete
+properties:
+  message:
+    description: Feedback text
+    type: string
+    minLength: 1
+    maxLength: 2000
+required:
+  - message

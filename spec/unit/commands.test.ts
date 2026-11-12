@@ -59,7 +59,7 @@ describe('resource-server init and serve', () => {
     expect(key.length).toBeGreaterThan(20)
     const config = JSON.parse(await readFile(join(project, '.resource-server/config.json'), 'utf8'))
     expect(config.schemas).toEqual(['schemas'])
-    expect(await readFile(join(project, '.resource-server/.gitignore'), 'utf8')).toContain('exports.ts')
+    expect(await readFile(join(project, '.resource-server/migrations/schema-state.json'), 'utf8')).toContain('table:book')
   }, 60_000)
 
   test('init again keeps an existing key and prints none', () => {

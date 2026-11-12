@@ -18,7 +18,7 @@ export type
   , LoadedSchema
   , AccessConfig
   , Cardinality
-  , ColumnBuilder
+  , ColumnSql
   , Operation
   , Visibility
   , ColumnDef

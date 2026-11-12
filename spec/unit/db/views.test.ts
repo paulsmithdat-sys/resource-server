@@ -12,8 +12,7 @@ const loadedSchema =
   (schema: JSONSchema): LoadedSchema => (
     { schema
     , source: `/test/${schema.title}.ts`
-    , importPath: `src/schema/${snakeCase(schema.title)}.ts`
-    , exportName: `${pascalCase(schema.title)}Schema`
+    , importPath: `src/schema/${snakeCase(schema.title)}.yaml`
     })
 
 const built = buildSchema(
