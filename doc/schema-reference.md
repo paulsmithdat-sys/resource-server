@@ -54,6 +54,7 @@ naming the schema and the property.
 | `x-unique` | Unique constraint |
 | `x-primary` | Custom primary key marker |
 | `x-system` | Always-loaded system schema |
+| `x-view` / `x-source` | Authored read-only view over a base table |
 | `x-exposed` | `false` hides the table, property, or relation |
 | `x-access` | Reads, creates, visibility, sharing, signing, roles, and audit |
 | `x-relations` | Relation metadata |
@@ -238,6 +239,59 @@ The builder deduplicates join tables by endpoint pair. If two schemas declare th
 same many-to-many relation, only one join table is generated. Conflicting
 `through` names for the same pair fail the build.
 
+## Views
+
+A schema marked `x-view: true` is an authored, read-only resource over a base
+table. It is declared in the same folder as the tables and is not a table: no
+table, trigger, join table, or share table is created for it. Its database
+object is a `SELECT` view named `snakeCase(title)`.
+
+```json
+{
+  "title": "Article Card",
+  "type": "object",
+  "x-view": true,
+  "x-source": "article",
+  "properties": {
+    "id": { "type": "string", "format": "uuid", "x-source": "article.id" },
+    "owner": {
+      "type": "string",
+      "format": "uuid",
+      "x-source": "article.owner"
+    },
+    "visibility": { "type": "string", "x-source": "article.visibility" },
+    "heading": { "type": "string", "x-source": "article.heading" },
+    "author_name": { "type": "string", "x-source": "article.author.name" },
+    "author": { "type": "object", "x-source": "article.author" },
+    "tags": { "type": "array", "x-source": "article.tag" }
+  }
+}
+```
+
+| Keyword | Where | Meaning |
+| --- | --- | --- |
+| `x-view` | Top level | Marks the schema as an authored view; must be a boolean |
+| `x-source` | Top level | The base table the view selects from |
+| `x-source` | Property | A `<base>.<path>` path to a column or relation |
+
+- Every property needs an `x-source`, and the path starts with the base table.
+- Following a relation traverses it: `article.author.name` reads the author's
+  `name`; `article.tag.name` collects each tag's `name` into an array.
+- A property whose path ends at a column becomes an attribute. A path that ends
+  at a relation becomes a JSON:API relationship, embedded as a JSON object
+  (`one`) or a JSON array (`many`). A path with a `many` step requires
+  `type: array`.
+- `id`, `owner`, and `visibility` are mandatory. They must be exposed and source
+  directly from `<base>.id`, `<base>.owner`, and `<base>.visibility`; `id` and
+  `owner` must use `format: uuid`. Row scoping reads them from the view.
+- Views declare relations as properties; `x-relations` is rejected.
+- Views are always read-only. `x-access.shareable`, `x-access.inherit`, and any
+  `x-access.create` other than `none` are rejected. `GET`, `HEAD`, and
+  `OPTIONS` are served; writes return `405`.
+- A view can read only exposed tables, columns, relations, and join tables.
+- The view name must not collide with a table, a generated `<table>_view`, or
+  another authored view.
+
 ## Complete example
 
 ```json
@@ -287,6 +341,12 @@ Schema building fails when:
 - two join tables conflict;
 - a unique constraint references an unknown column;
 - `x-exposed` is not a boolean;
-- `x-unique` or `x-primary` markers conflict with the generated defaults.
+- `x-unique` or `x-primary` markers conflict with the generated defaults;
+- an authored view is missing `x-source` or a property `x-source`;
+- an authored view path names a hidden table, column, or relation;
+- an authored view does not expose `id`, `owner`, and `visibility` from its
+  base row, or uses the wrong format;
+- an authored view is shareable, inherits access, or is creatable;
+- an authored view reuses a table, generated-view, or authored-view name.
 
 Failures happen before any SQL is generated or executed.

@@ -1,6 +1,7 @@
 import { verifySignedRequest } from '../../auth/signing.ts'
 import type { AppContext, Next } from '../context.ts'
 import type { RowDatabase } from '../database.ts'
+import { methodNotAllowed } from '../errors.ts'
 import type { Registry } from '../registry.ts'
 import { uuidToBuffer } from '../uuid.ts'
 import { negotiate, operationOf } from './negotiate.ts'
@@ -51,10 +52,15 @@ export const createGuard =
     return async (c: AppContext, next: Next): Promise<Response | void> => {
       const type = pathParam(c, 'type')
       const nested = c.req.param('rel') !== undefined
-      negotiate(c, nested, registry.get(type) !== undefined)
+      const resource = registry.get(type)
+      if (resource?.readOnly
+          && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method))
+        throw methodNotAllowed(
+          `"${resource.type}" is a read-only view and cannot be written`)
+      negotiate(c, nested, resource !== undefined)
       if (!requireAuth) return next()
 
-      const access = registry.get(type)?.access
+      const access = resource?.access
       const operation = operationOf(c.req.method, nested)
       const signed = access?.signed.includes(operation) === true
       const open =

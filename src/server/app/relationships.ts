@@ -128,6 +128,7 @@ export const relationshipHandlers =
               { resources:
                 [...registry.resources.values()].map(resource => (
                   { type: resource.type
+                  , readOnly: resource.readOnly
                   , attributes: resource.attributes
                   , relationships: Object.keys(resource.relationships)
                   }))

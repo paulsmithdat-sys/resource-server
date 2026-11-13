@@ -1,4 +1,5 @@
 import { buildViews } from './views.ts'
+import { buildAuthoredViews } from './build/view.ts'
 import { deriveSchemas } from './derive-schemas.ts'
 import { type BuiltSchema, type JSONSchema, type LoadedSchema, type TableDef } from './schema-types.ts'
 import { buildTablePlan } from './build/plan.ts'
@@ -9,7 +10,14 @@ export { createUpdatedTrigger } from './build/columns.ts'
 /** Turn a list of JSON Schemas into tables, views and triggers, with the tables ordered so each comes after the ones it references. */
 export const buildSchema =
   (base: LoadedSchema[]): BuiltSchema => {
-    const schemas = deriveSchemas(base)
+    for (const entry of base) {
+      if (entry.schema['x-view'] !== undefined
+          && typeof entry.schema['x-view'] !== 'boolean')
+        throw new Error(`${entry.schema.title}: x-view must be a boolean`)
+    }
+
+    const schemas = deriveSchemas(base.filter(x => x.schema['x-view'] !== true))
+    const viewEntries = base.filter(x => x.schema['x-view'] === true)
     const plans = schemas.map(buildTablePlan)
     const plansByName = new Map(plans.map(x => [x.tableName, x]))
 
@@ -92,13 +100,26 @@ export const buildSchema =
     const built: BuiltSchema =
       { tables
       , orderedTables
+      , authoredViews: {}
       , triggers:
           Object.fromEntries(
             orderedTables.map(x => [x.tableName, x.trigger]))
       , views: {}
       }
 
-    return { ...built, views: buildViews(built) }
+    const generated = buildViews(built)
+    const reserved =
+      new Set(
+        [ ...orderedTables.map(x => x.tableName)
+        , ...Object.keys(generated)
+        ])
+    const authored = buildAuthoredViews(viewEntries, builtByName, reserved)
+
+    return (
+      { ...built
+      , authoredViews: authored.authoredViews
+      , views: { ...generated, ...authored.views }
+      })
   }
 
 export type { JSONSchema }

@@ -115,6 +115,7 @@ Plain JSON Schema describes data. Serber adds a small set of `x-` keywords for e
 | `x-primary` | Custom primary key |
 | `x-unique-constraints` | Unique constraints over column groups |
 | `x-relations` | Relations; see below |
+| `x-view` / `x-source` | Authored read-only view; see below |
 | `x-access` | Reads, creates, visibility, sharing, signing, roles, audit |
 | `x-exposed` | `false` hides a table, column, or relation |
 | `x-system` | Marks a schema that is always loaded |
@@ -167,6 +168,37 @@ Relations live under `x-relations`. A relation is declared from one side; the ge
 `through`, `foreignKey`, `onDelete`, and `onUpdate` override the defaults. A self-referential many-to-many relation gets `<table>_<label>` with `related_<table>_id` for the other side. Cyclic foreign keys are rejected.
 
 Each table also gets a `<table>_view`. `one` relations are nested JSON objects or `null`; `many` relations are JSON arrays. The API reads views, so requests do not join base tables.
+
+## Views
+
+A schema with `x-view: true` is an authored, read-only resource over a base table. It selects the fields and relations it needs; the base table stays unchanged.
+
+```json
+{
+  "title": "Article Card",
+  "type": "object",
+  "x-view": true,
+  "x-source": "article",
+  "properties": {
+    "id": { "type": "string", "format": "uuid", "x-source": "article.id" },
+    "owner": {
+      "type": "string",
+      "format": "uuid",
+      "x-source": "article.owner"
+    },
+    "visibility": { "type": "string", "x-source": "article.visibility" },
+    "heading": { "type": "string", "x-source": "article.heading" },
+    "author": { "type": "object", "x-source": "article.author" },
+    "tags": { "type": "array", "x-source": "article.tag" }
+  }
+}
+```
+
+- `title` becomes the view name (`article_card`) and the `/article_card` resource.
+- Every property has an `x-source` path from the base table. Paths follow relations: `article.author.name` reads a related column.
+- A path ending at a column is an attribute; one ending at a relation is a JSON:API relationship. Relation paths with a `many` step need `type: array`.
+- `id`, `owner`, and `visibility` are required and must come straight from the base row, so visibility rules still apply.
+- Views are read-only: `GET`, `HEAD`, and `OPTIONS` are served, writes return `405`, and `x-relations`, `shareable`, `inherit`, and `create` are rejected. They cannot read hidden tables, columns, relations, or join tables.
 
 ## Access control
 

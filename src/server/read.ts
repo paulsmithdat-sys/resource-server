@@ -8,9 +8,19 @@ import type { Scope } from './scope.ts'
 
 export type Tables = Map<string, TableDef>
 
+/** The relation's JOINs, reading each endpoint from its base table when it is a view. */
+const relationSource =
+  (resource: ResourceMeta) =>
+    resource.readOnly
+      ? resource.definition.sourceTable ?? resource.table
+      : resource.table
+
 /** The resource's rows as a sub-select named like its view, embedding only the relations this request needs. */
 const sourceSql =
   (tables: Tables, resource: ResourceMeta, query?: Pick<ListQuery, 'fields' | 'include'>) => {
+    if (resource.readOnly)
+      return `(SELECT * FROM ${quote(resource.view)}) AS ${quote(resource.view)}`
+
     const selection = query?.fields.get(resource.type)
     const sql =
       selectSql(
@@ -106,14 +116,17 @@ const filterScope =
     const relation = hop.from.definition.relations[hop.label]!
     const readable = scopeFor(hop.to, f)
     const inner = filterScope(tables, filter, scopeFor, hop.to, f, step + 1)
+    const fromTable = relationSource(hop.from)
+    const toTable = hop.to.view
     const correlated =
       { sql: `${uuidString(`${quote(s)}.\`id\``)} = ${quote(alias)}.\`id\``, params: [] }
     const where = whereSql([correlated, readable, inner])
     return (
       { sql:
-          `EXISTS (SELECT 1 FROM ${quote(hop.from.table)} AS ${quote(s)} `
-          + relationJoin(hop.from.definition, relation, tables, s, t, j)
-          + ` JOIN ${quote(hop.to.view)} AS ${quote(f)}`
+          `EXISTS (SELECT 1 FROM ${quote(fromTable)} AS ${quote(s)} `
+          + relationJoin(
+              hop.from.definition, relation, tables, s, t, j, fromTable)
+          + ` JOIN ${quote(toTable)} AS ${quote(f)}`
           + ` ON ${quote(f)}.\`id\` = ${uuidString(`${quote(t)}.\`id\``)}`
           + `${where.sql})`
       , params: where.params

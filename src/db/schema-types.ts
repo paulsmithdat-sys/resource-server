@@ -70,6 +70,8 @@ export type JSONSchemaProperty =
   , 'x-unique'?: boolean
   , 'x-primary'?: boolean
   , 'x-exposed'?: boolean
+  // For view properties: where the value comes from, such as "article.heading"
+  , 'x-source'?: string
   , [key: string]: unknown
   }
 
@@ -84,6 +86,10 @@ export type JSONSchema =
   , required?: string[]
   , default?: unknown
   , 'x-system'?: boolean
+  // A read-only resource built from an authored SELECT over other tables
+  , 'x-view'?: boolean
+  // The base table an authored view selects from
+  , 'x-source'?: string
   , 'x-exposed'?: boolean
   , 'x-access'?: Record<string, unknown>
   , 'x-relations'?: Record<string, RelationConfig>
@@ -137,6 +143,8 @@ export type TableDef =
   , uniqueConstraints: string[][]
   , indexes: string[]
   , trigger: string
+  // For an authored view, the base table its columns and relations come from
+  , sourceTable?: string
   }
 
 /** A view built for a table, with its SQL. */
@@ -146,10 +154,12 @@ export type ViewDef =
   , dropSql: string
   }
 
-/** The result of building schemas: tables, tables in dependency order, triggers and views. */
+/** The result of building schemas: tables, authored views, triggers and generated views. */
 export type BuiltSchema =
   { tables: Record<string, TableDef>
   , orderedTables: TableDef[]
+  // Read-only resources declared with `x-view`, keyed by their view name
+  , authoredViews: Record<string, TableDef>
   , triggers: Record<string, string>
   , views: Record<string, ViewDef>
   }

@@ -3,8 +3,10 @@ import { registerAuthRoutes } from '../../auth/routes.ts'
 import { createAuthService } from '../../auth/service/index.ts'
 import type { BuiltSchema } from '../../db/schema-types.ts'
 import type { Env } from '../context.ts'
+import { pathParam } from '../context.ts'
 import type { RowDatabase } from '../database.ts'
 import { ApiError } from '../errors.ts'
+import type { Registry } from '../registry.ts'
 import { sessionMiddleware } from '../session.ts'
 import { crudHandlers } from './crud.ts'
 import { errorDocument, jsonApi } from './document.ts'
@@ -33,13 +35,28 @@ const paths =
   , related: '/:type/:id/:rel'
   }
 
+/** What each route offers, and only reads on a read-only view. */
 const allowed =
-  [ ['/', 'GET, HEAD, OPTIONS']
-  , [paths.collection, 'GET, HEAD, POST, OPTIONS']
-  , [paths.item, 'GET, HEAD, PUT, PATCH, DELETE, OPTIONS']
-  , [paths.relationship, 'GET, HEAD, PATCH, POST, DELETE, OPTIONS']
-  , [paths.related, 'GET, HEAD, OPTIONS']
-  ] as const
+  { collection: { read: 'GET, HEAD, OPTIONS', write: 'GET, HEAD, POST, OPTIONS' }
+  , item:
+      { read: 'GET, HEAD, OPTIONS'
+      , write: 'GET, HEAD, PUT, PATCH, DELETE, OPTIONS'
+      }
+  , relationship:
+      { read: 'GET, HEAD, OPTIONS'
+      , write: 'GET, HEAD, PATCH, POST, DELETE, OPTIONS'
+      }
+  , related: { read: 'GET, HEAD, OPTIONS', write: 'GET, HEAD, OPTIONS' }
+  } as const
+
+/** The OPTIONS response for one route, reflecting whether the resource is writable. */
+const optionsFor =
+  (c: AppContext, registry: Registry, route: keyof typeof allowed) => {
+    const resource = registry.get(pathParam(c, 'type'))
+    const methods =
+      resource?.readOnly ? allowed[route].read : allowed[route].write
+    return c.body(null, 204, { allow: methods })
+  }
 
 /**
  * Build the JSON:API Hono app for a built schema.
@@ -88,8 +105,12 @@ export const createApp =
     app.delete(paths.relationship, related.writeRelationship('remove'))
     app.on(read, paths.related, related.getRelated)
 
-    for (const [path, methods] of allowed)
-      app.options(path, c => c.body(null, 204, { allow: methods }))
+    app.options(paths.collection, c => optionsFor(c, s.registry, 'collection'))
+    app.options(paths.item, c => optionsFor(c, s.registry, 'item'))
+    app.options(
+      paths.relationship, c => optionsFor(c, s.registry, 'relationship'))
+    app.options(paths.related, c => optionsFor(c, s.registry, 'related'))
+    app.options('/', c => c.body(null, 204, { allow: 'GET, HEAD, OPTIONS' }))
 
     app.onError((error, c) => {
       if (!(error instanceof ApiError)) console.error(error)

@@ -12,7 +12,7 @@ export const quote =
 const literal =
   (value: string) => `'${value.replaceAll("'", "''")}'`
 
-const reference =
+export const reference =
   (alias: string, columnName: string) => `${quote(alias)}.${quote(columnName)}`
 
 export const uuidString =
@@ -24,7 +24,7 @@ export const uuidString =
     + ` || '-' || lower(hex(substr(${value}, 9, 2)))`
     + ` || '-' || lower(hex(substr(${value}, 11, 6)))) END)`
 
-const jsonValue =
+export const jsonValue =
   (column: ColumnDef, value: string) => {
     if (column.schema.format === 'uuid') return uuidString(value)
     if (column.schema.format === 'byte')
@@ -40,7 +40,7 @@ const jsonValue =
 const LIGHT_COLUMNS = ['id', 'owner', 'visibility']
 
 /** JSON object of a row's exposed columns (light: only what linkage and access checks need). */
-const jsonObject =
+export const jsonObject =
   (table: TableDef, alias: string, light = false) => {
     const args = table.columns
       .filter(column =>
@@ -53,7 +53,7 @@ const jsonObject =
     return `json_object(${args.join(', ')})`
   }
 
-const viewValue =
+export const viewValue =
   (column: ColumnDef, alias: string) => {
     const value = reference(alias, column.columnName)
     return column.schema.format === 'uuid' ? uuidString(value) : value
@@ -87,7 +87,7 @@ const groupedSelect =
     + ` WHERE ${whereSql}`
     + ` ORDER BY ${reference('r', 'id')})`
 
-const foreignKeyColumnOf =
+export const foreignKeyColumnOf =
   (relation: RelationConfig) =>
     relation.foreignKey ?? `${relation.table}_${relation.column ?? 'id'}`
 
@@ -221,7 +221,9 @@ export const relationJoin =
   , tablesByName: Map<string, TableDef>
   , s: string
   , t: string
-  , j: string) => {
+  , j: string
+  /** The table alias `s` reads from; authored views traverse their base table. */
+  , sourceTableName = table.tableName) => {
     const target =
       need(tablesByName, relation.table,
         `${table.tableName}: relation targets unknown table "${relation.table}"`)
@@ -235,7 +237,7 @@ export const relationJoin =
       const join =
         need(tablesByName, relation.through,
           `${table.tableName}: join table "${relation.through}" does not exist`)
-      const keys = joinForeignKeys(join, table.tableName, target.tableName)
+      const keys = joinForeignKeys(join, sourceTableName, target.tableName)
       if (!keys.source || !keys.target)
         throw new Error(
           `${table.tableName}: join table "${relation.through}" needs foreign keys to both tables`)
@@ -247,7 +249,7 @@ export const relationJoin =
 
     const inverse =
       Object.values(target.relations)
-        .find(x => x.cardinality === 'one' && x.table === table.tableName)
+        .find(x => x.cardinality === 'one' && x.table === sourceTableName)
     if (!inverse)
       throw new Error(
         `${table.tableName}: many relation to "${relation.table}" needs a join table or an inverse one relation`)
