@@ -133,6 +133,7 @@ Schema building fails when:
 ## Status and follow-ups
 
 - The implementation and tests are committed together.
+- PR: <https://github.com/consoleillusion/resource-server/pull/2>
 - `bun test` and `bunx tsc --noEmit` could not be run in the authoring
   environment: no Bun, Node, or `node_modules` was available. Run both before
   merging.
